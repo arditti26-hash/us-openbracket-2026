@@ -33,6 +33,7 @@ COLORS = {
 }
 
 TOURNAMENT_SLUG = 'us-open-2026'
+GROUP_SLUG      = 'serving-hot-takes'
 
 HTML = r"""<!DOCTYPE html>
 <html lang="en">
@@ -1704,6 +1705,95 @@ def _fetch_global_ranks():
     return _global_rank_cache
 
 
+# ── Group score scraper — pulls exact scores from served.bracket.tennis ───────
+
+_group_scores_cache    = {}
+_group_scores_cache_ts = 0.0
+
+
+def _scrape_group_scores():
+    """
+    Fetch served.bracket.tennis/groups/GROUP_SLUG and return
+    {username_lower: {'atp': int|None, 'wta': int|None, 'combined': int|None}}
+    cached 5 minutes.
+
+    Tries two strategies:
+    1. Parse the turbo-stream flat array for atpScore/wtaScore field names.
+    2. Regex the rendered HTML for score numbers near the username.
+    """
+    global _group_scores_cache, _group_scores_cache_ts
+    now = time.time()
+    if _group_scores_cache and now - _group_scores_cache_ts < 300:
+        return _group_scores_cache
+
+    out = {}
+    try:
+        url = f'https://served.bracket.tennis/groups/{GROUP_SLUG}'
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Accept': 'text/html',
+        })
+        with urllib.request.urlopen(req, timeout=15) as r:
+            html = r.read().decode('utf-8', errors='replace')
+
+        member_set = {m.lower() for m in MEMBERS}
+
+        # Strategy 1: flat array field-name scan
+        flat = _parse_flat_array(html)
+        if flat:
+            _SCORE_FIELDS = {
+                'atpscore': 'atp', 'atppoints': 'atp', 'atp': 'atp',
+                'wtascore': 'wta', 'wtapoints': 'wta', 'wta': 'wta',
+                'combinedscore': 'combined', 'combined': 'combined',
+                'totalscore': 'combined', 'score': 'combined',
+            }
+            for i, item in enumerate(flat):
+                if not isinstance(item, str) or item.lower() not in member_set:
+                    continue
+                username = item.lower()
+                entry = out.setdefault(username, {'atp': None, 'wta': None, 'combined': None})
+                # Scan a window after the username string for field-name/value pairs
+                window = flat[i: min(len(flat), i + 80)]
+                for j, w in enumerate(window):
+                    if isinstance(w, str):
+                        key = _SCORE_FIELDS.get(w.lower())
+                        if key and entry[key] is None and j + 1 < len(window):
+                            v = window[j + 1]
+                            if isinstance(v, int) and v >= 0:
+                                entry[key] = v
+
+        # Strategy 2: HTML regex — look for username in bracket URLs near score numbers
+        for member in MEMBERS:
+            uname = member.lower()
+            if out.get(uname, {}).get('combined') is not None:
+                continue  # flat array succeeded
+            pattern = re.escape(member)
+            m = re.search(pattern, html, re.I)
+            if not m:
+                continue
+            snippet = html[max(0, m.start() - 50): m.end() + 600]
+            nums = re.findall(r'\b(\d{1,4})\b', snippet)
+            scores = [int(n) for n in nums if 10 <= int(n) <= 4000]
+            entry = out.setdefault(uname, {'atp': None, 'wta': None, 'combined': None})
+            if len(scores) >= 3:
+                entry['atp']      = scores[0]
+                entry['wta']      = scores[1]
+                entry['combined'] = scores[2]
+            elif len(scores) == 2:
+                entry['atp']      = scores[0]
+                entry['wta']      = scores[1]
+                entry['combined'] = scores[0] + scores[1]
+            elif len(scores) == 1:
+                entry['combined'] = scores[0]
+
+        _group_scores_cache    = out
+        _group_scores_cache_ts = now
+    except Exception:
+        pass
+
+    return _group_scores_cache
+
+
 # Tournament data cache: shared draw+results across all users per request
 _tourney_cache    = {}
 _tourney_cache_ts = {}
@@ -1740,55 +1830,31 @@ def get_data(members=None):
     if not members:
         return {'players': [], 'updated': _now_et().strftime('%b %d, %Y · %I:%M:%S %p ET')}
 
-    # Shared draw + results for ATP and WTA (one fetch per tour, reused for all members)
-    atp_draw, atp_results, _ = _get_tournament_data('atp', members)
-    wta_draw, wta_results, _ = _get_tournament_data('wta', members)
+    # Pull scores directly from served.bracket.tennis (exact, no local re-calculation)
+    group_scores = _scrape_group_scores()
 
     players = []
     for i, member in enumerate(members):
-        atp_score = wta_score = None
-        atp_max = wta_max = None
+        s = group_scores.get(member.lower(), {})
+        atp_score    = s.get('atp')
+        wta_score    = s.get('wta')
+        combined     = s.get('combined')
 
-        try:
-            html = _fetch_bracket_html(member, 'atp')
-            picks = _extract_picks(html)
-            if picks and atp_draw:
-                atp_score = _calculate_score(picks, atp_draw, atp_results)
-                atp_max   = _calculate_max_score(picks, atp_draw, atp_results)
-        except Exception:
-            pass
-
-        try:
-            html = _fetch_bracket_html(member, 'wta')
-            picks = _extract_picks(html)
-            if picks and wta_draw:
-                wta_score = _calculate_score(picks, wta_draw, wta_results)
-                wta_max   = _calculate_max_score(picks, wta_draw, wta_results)
-        except Exception:
-            pass
-
-        combined = None
-        if atp_score is not None and wta_score is not None:
-            combined = atp_score + wta_score
-        elif atp_score is not None:
-            combined = atp_score
-        elif wta_score is not None:
-            combined = wta_score
-
-        max_combined = None
-        if atp_max is not None and wta_max is not None:
-            max_combined = atp_max + wta_max
-        elif atp_max is not None:
-            max_combined = atp_max
-        elif wta_max is not None:
-            max_combined = wta_max
+        # Derive combined if only one tour score is available
+        if combined is None:
+            if atp_score is not None and wta_score is not None:
+                combined = atp_score + wta_score
+            elif atp_score is not None:
+                combined = atp_score
+            elif wta_score is not None:
+                combined = wta_score
 
         players.append({
             'username':     member,
             'atp':          atp_score,
             'wta':          wta_score,
             'combined':     combined,
-            'max_combined': max_combined,
+            'max_combined': None,
             'color_idx':    i % len(COLORS),
         })
 

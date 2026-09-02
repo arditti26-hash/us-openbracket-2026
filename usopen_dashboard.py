@@ -724,7 +724,7 @@ body {
     <div class="card-header" style="margin-bottom:0;">
       <div>
         <div class="card-title">📊 US Open Odds</div>
-        <div class="card-sub">Outright winner · DraftKings · updated August 24</div>
+        <div class="card-sub">Outright winner · DraftKings · updated September 2</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <button id="odds-btn-atp" onclick="switchOddsTour('atp')"
@@ -1410,28 +1410,28 @@ All times are already ET — no conversion needed.
 
 _STATIC_ODDS = {
     'atp': [
-        ('-130',  'Jannik Sinner'),
-        ('+500',  'Carlos Alcaraz'),
-        ('+900',  'Alexander Zverev'),
-        ('+1200', 'Taylor Fritz'),
-        ('+1400', 'Ben Shelton'),
-        ('+2000', 'Daniil Medvedev'),
-        ('+2500', 'Tommy Paul'),
-        ('+3000', 'Novak Djokovic'),
+        ('+145',  'Carlos Alcaraz'),
+        ('+360',  'Alexander Zverev'),
+        ('+1000', 'Taylor Fritz'),
+        ('+1200', 'Ben Shelton'),
+        ('+1400', 'Rafael Jodar'),
+        ('+1700', 'Daniil Medvedev'),
+        ('+2500', 'Felix Auger-Aliassime'),
         ('+3500', 'Frances Tiafoe'),
-        ('+4000', 'Casper Ruud'),
+        ('+3500', 'Jakub Mensik'),
+        ('+4000', 'Lorenzo Musetti'),
     ],
     'wta': [
-        ('+350',  'Aryna Sabalenka'),
-        ('+500',  'Coco Gauff'),
-        ('+700',  'Iga Swiatek'),
+        ('+330',  'Aryna Sabalenka'),
+        ('+425',  'Coco Gauff'),
+        ('+500',  'Iga Swiatek'),
         ('+900',  'Jessica Pegula'),
-        ('+1200', 'Elena Rybakina'),
-        ('+1400', 'Madison Keys'),
-        ('+1600', 'Emma Navarro'),
-        ('+2000', 'Mirra Andreeva'),
-        ('+2200', 'Karolina Muchova'),
-        ('+2500', 'Amanda Anisimova'),
+        ('+1400', 'Naomi Osaka'),
+        ('+1700', 'Elena Rybakina'),
+        ('+1800', 'Mirra Andreeva'),
+        ('+1800', 'Marta Kostyuk'),
+        ('+1800', 'Amanda Anisimova'),
+        ('+2200', 'Alexandra Eala'),
     ],
 }
 

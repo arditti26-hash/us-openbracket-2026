@@ -1942,13 +1942,14 @@ def _fetch_tour_score(username, tour):
         if not flat:
             return None
         for i, item in enumerate(flat):
-            if (item == 'score'
-                    and i + 1 < len(flat)
-                    and isinstance(flat[i + 1], int)
-                    and flat[i + 1] >= 0
-                    and i + 2 < len(flat)
-                    and flat[i + 2] == 'lastHash'):
-                return flat[i + 1]
+            if item == 'score' and i + 1 < len(flat):
+                nxt = flat[i + 1]
+                # Score present: ['score', <int>, 'lastHash', ...]
+                if isinstance(nxt, int) and nxt >= 0 and i + 2 < len(flat) and flat[i + 2] == 'lastHash':
+                    return nxt
+                # Score absent (0): ['score', 'lastHash', ...]
+                if nxt == 'lastHash':
+                    return 0
     except Exception:
         pass
     return None

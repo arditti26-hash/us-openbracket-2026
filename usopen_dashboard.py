@@ -473,12 +473,17 @@ body {
 
   <!-- LIVE BRACKET VISUALIZATION -->
   <div class="card" id="bracket-card" style="margin-bottom:24px;overflow:hidden;">
-    <div class="card-header" style="margin-bottom:0;">
+    <div class="card-header" style="margin-bottom:0;flex-wrap:wrap;gap:10px;">
       <div>
         <div class="card-title">🎾 Live Bracket</div>
         <div class="card-sub">Real-time draw · served.bracket.tennis</div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <!-- Player pick filter -->
+        <select id="player-pick-select" onchange="switchPickFilter(this.value)"
+          style="padding:5px 10px;border-radius:100px;border:2px solid #1a3a6e;background:#fff;color:#1a3a6e;font-size:0.78rem;font-weight:700;cursor:pointer;font-family:sans-serif;outline:none;">
+          <option value="">👤 All picks</option>
+        </select>
         <button id="btn-atp" onclick="switchBracketTour('atp')"
           style="padding:6px 16px;border-radius:100px;border:2px solid #00512e;background:#00512e;color:#fff;font-size:0.78rem;font-weight:700;cursor:pointer;font-family:sans-serif;letter-spacing:0.5px;">
           Men's
@@ -493,6 +498,12 @@ body {
           Full ↗
         </a>
       </div>
+    </div>
+    <!-- Pick legend (shown only when a player is selected) -->
+    <div id="pick-legend" style="display:none;padding:6px 20px 0;font-size:0.72rem;font-family:sans-serif;color:#666;gap:14px;flex-wrap:wrap;">
+      <span style="color:#c8a020;font-weight:700;">● Picked · correct</span>
+      <span style="color:#c0392b;font-weight:700;">● Picked · eliminated</span>
+      <span style="color:#1a3a6e;font-weight:700;">● Picked · still alive</span>
     </div>
 
     <!-- Single scrollable container: labels + bracket scroll together -->
@@ -509,6 +520,8 @@ body {
   (function(){
     var _bTour = 'atp';
     var _bCache = {};
+    var _bPickUser = '';
+    var _bPicksCache = {}; // "user:tour" -> picks dict
 
     window.switchBracketTour = function(tour) {
       _bTour = tour;
@@ -523,17 +536,63 @@ body {
       loadBracket(tour);
     };
 
+    window.switchPickFilter = function(username) {
+      _bPickUser = username;
+      var legend = document.getElementById('pick-legend');
+      legend.style.display = username ? 'flex' : 'none';
+      loadBracket(_bTour);
+    };
+
+    // Populate player dropdown from current group members
+    window._populatePickDropdown = function(members) {
+      var sel = document.getElementById('player-pick-select');
+      // Keep first "All picks" option, rebuild the rest
+      while (sel.options.length > 1) sel.remove(1);
+      (members || []).forEach(function(m) {
+        var opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        sel.appendChild(opt);
+      });
+    };
+
+    function fetchPicks(user, tour, callback) {
+      var key = user + ':' + tour;
+      if (_bPicksCache[key]) { callback(_bPicksCache[key]); return; }
+      var membersParam = (window._currentMembers && window._currentMembers.length)
+        ? '&members=' + encodeURIComponent(window._currentMembers.join(',')) : '';
+      fetch('/api/picks?user=' + encodeURIComponent(user) + '&tour=' + tour + membersParam)
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          _bPicksCache[key] = data.picks || {};
+          callback(_bPicksCache[key]);
+        })
+        .catch(function(){ callback({}); });
+    }
+
     function loadBracket(tour, bustCache) {
       var body = document.getElementById('bracket-body');
       var labelsEl = document.getElementById('bracket-round-labels');
-      if (_bCache[tour] && !bustCache) { renderBracket(_bCache[tour], body, labelsEl); return; }
+      if (bustCache) { delete _bCache[tour]; _bPicksCache = {}; }
+
+      function doRender(data) {
+        if (_bPickUser) {
+          fetchPicks(_bPickUser, tour, function(picks) {
+            renderBracket(data, body, labelsEl, picks);
+          });
+        } else {
+          renderBracket(data, body, labelsEl, {});
+        }
+      }
+
+      if (_bCache[tour]) { doRender(_bCache[tour]); return; }
       var membersParam = (window._currentMembers && window._currentMembers.length)
         ? '&members=' + encodeURIComponent(window._currentMembers.join(',')) : '';
       fetch('/api/bracket?tour=' + tour + membersParam)
         .then(function(r){ return r.json(); })
         .then(function(data){
           _bCache[tour] = data;
-          renderBracket(data, body, labelsEl);
+          doRender(data);
         })
         .catch(function(e){
           if (!_bCache[tour])
@@ -591,7 +650,8 @@ body {
       return (typeof score === 'string' && score.length) ? score : null;
     }
 
-    function renderBracket(data, container, labelsEl) {
+    function renderBracket(data, container, labelsEl, picks) {
+      picks = picks || {};
       var matches = data.matches || [];
       if (!matches.length) {
         container.innerHTML = '<div style="padding:40px;text-align:center;color:#aaa;font-size:0.85rem;font-family:sans-serif;">No bracket data yet.</div>';
@@ -638,12 +698,17 @@ body {
           var isLive = !!m.is_live;
           var isComplete = !!m.winner;
 
+          // Pick overlay for this match
+          var pickKey = m.round + ':' + m.pos;
+          var matchPick = picks[pickKey] || null; // {player, status}
+
           var slot = document.createElement('div');
           slot.style.cssText = 'flex:1;display:flex;align-items:center;padding:0 3px;';
 
+          var cardBorder = isLive ? '0 0 0 2px #c0392b'
+            : (matchPick ? '0 0 0 2px ' + (matchPick.status === 'correct' ? '#c8a020' : matchPick.status === 'wrong' ? '#c0392b' : '#1a3a6e') : '0 1px 3px rgba(0,0,0,0.08)');
           var card = document.createElement('div');
-          card.style.cssText = 'width:100%;border-radius:4px;overflow:hidden;'
-            + 'box-shadow:' + (isLive ? '0 0 0 2px #c0392b' : '0 1px 3px rgba(0,0,0,0.08)') + ';';
+          card.style.cssText = 'width:100%;border-radius:4px;overflow:hidden;box-shadow:' + cardBorder + ';';
 
           [
             { name: m.p1, rank: m.p1_rank, country: m.p1_country },
@@ -652,7 +717,30 @@ body {
             var isWinner = isComplete && m.winner === p.name;
             var isLoser  = isComplete && m.winner !== p.name && !!p.name;
             var isTbd    = !p.name;
-            var playerLive = p.name && liveSet[p.name];
+
+            // Per-player pick state
+            var isPicked = matchPick && matchPick.player === p.name;
+            var pickStatus = isPicked ? matchPick.status : null;
+
+            // Background/border: pick overlay takes priority over win/loss colouring
+            var bgColor, textColor, borderColor, fontWeight;
+            if (isPicked && pickStatus === 'correct') {
+              bgColor = '#fffbe6'; textColor = '#7a5c00'; borderColor = '#e6c84a'; fontWeight = '700';
+            } else if (isPicked && pickStatus === 'wrong') {
+              bgColor = '#fff0f0'; textColor = '#c0392b'; borderColor = '#e8a0a0'; fontWeight = '600';
+            } else if (isPicked && pickStatus === 'eliminated') {
+              bgColor = '#f5f5f5'; textColor = '#999'; borderColor = '#ccc'; fontWeight = '400';
+            } else if (isPicked) { // future
+              bgColor = '#eef2fa'; textColor = '#1a3a6e'; borderColor = '#7a9fd4'; fontWeight = '600';
+            } else if (isWinner) {
+              bgColor = '#d4f0dc'; textColor = '#00512e'; borderColor = '#9ecfad'; fontWeight = '600';
+            } else if (isLive) {
+              bgColor = '#fff5f5'; textColor = '#1a1a1a'; borderColor = '#e8a0a0'; fontWeight = '400';
+            } else if (isTbd) {
+              bgColor = '#f5f4f0'; textColor = '#ccc'; borderColor = '#e0dbd0'; fontWeight = '400';
+            } else {
+              bgColor = '#fff'; textColor = isLoser ? '#999' : '#1a1a1a'; borderColor = '#e0dbd0'; fontWeight = '400';
+            }
 
             var row = document.createElement('div');
             row.style.cssText = [
@@ -660,18 +748,15 @@ body {
               'line-height:' + ROW_H + 'px',
               'padding:0 5px',
               'font-size:10.5px',
-              'overflow:hidden',
-              'white-space:nowrap',
-              'text-overflow:ellipsis',
               'font-family:sans-serif',
               'display:flex',
               'align-items:center',
               'justify-content:space-between',
-              'border:1px solid ' + (isWinner ? '#9ecfad' : isLive ? '#e8a0a0' : '#e0dbd0'),
-              pi === 0 ? 'border-bottom:1px solid ' + (isLive ? '#e8a0a0' : '#e8e4d8') : '',
-              'background:' + (isWinner ? '#d4f0dc' : isLive ? '#fff5f5' : isTbd ? '#f5f4f0' : '#fff'),
-              'color:' + (isWinner ? '#00512e' : isLoser ? '#999' : isTbd ? '#ccc' : '#1a1a1a'),
-              'font-weight:' + (isWinner ? '600' : '400'),
+              'border:1px solid ' + borderColor,
+              pi === 0 ? 'border-bottom:1px solid ' + borderColor : '',
+              'background:' + bgColor,
+              'color:' + textColor,
+              'font-weight:' + fontWeight,
             ].join(';');
 
             var flag = p.country ? countryFlag(p.country) : '';
@@ -681,8 +766,15 @@ body {
             nameSpan.textContent = (flag ? flag + ' ' : '') + (seed ? seed + ' ' : '') + lastName(p.name);
             row.appendChild(nameSpan);
 
-            // LIVE dot on first row only
-            if (isLive && pi === 0) {
+            // Pick badge (shown when this player is the pick)
+            if (isPicked) {
+              var badge = document.createElement('span');
+              var badgeIcon = pickStatus === 'correct' ? '✓' : pickStatus === 'wrong' || pickStatus === 'eliminated' ? '✗' : '●';
+              var badgeColor = pickStatus === 'correct' ? '#c8a020' : pickStatus === 'wrong' || pickStatus === 'eliminated' ? '#c0392b' : '#1a3a6e';
+              badge.style.cssText = 'flex-shrink:0;font-size:10px;font-weight:700;color:' + badgeColor + ';margin-left:4px;';
+              badge.textContent = badgeIcon;
+              row.appendChild(badge);
+            } else if (isLive && pi === 0) {
               var dot = document.createElement('span');
               dot.style.cssText = 'flex-shrink:0;width:6px;height:6px;border-radius:50%;background:#c0392b;margin-left:4px;animation:blink 1.5s ease-in-out infinite;display:inline-block;';
               row.appendChild(dot);
@@ -894,6 +986,7 @@ async function loadData() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     allData = await res.json();
     render();
+    if (window._populatePickDropdown) window._populatePickDropdown(members);
     document.getElementById('footer').innerHTML = '🍈 &nbsp;US Open 2026 · Flushing Meadows · New York · Scores from served.bracket.tennis · Updated: ' + allData.updated;
   } catch(e) {
     document.getElementById('status-text').textContent = 'Error loading data — ' + e.message;
@@ -1925,6 +2018,42 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_body(body, 'application/json')
             except Exception as e:
                 self.send_body(str(e).encode(), 'text/plain', 500)
+        elif self.path.startswith('/api/picks'):
+            try:
+                user = ''
+                tour = 'atp'
+                members = None
+                if '?' in self.path:
+                    qs = self.path.split('?', 1)[1]
+                    for part in qs.split('&'):
+                        if part.startswith('user='):
+                            user = urllib.request.unquote(part[5:]).strip()
+                        elif part.startswith('tour='):
+                            tour = part[5:].lower()
+                        elif part.startswith('members='):
+                            val = urllib.request.unquote(part[8:])
+                            members = [m.strip() for m in val.split(',') if m.strip()]
+                members = members or MEMBERS
+                r1_draw, match_results, _ = _get_tournament_data(tour, members)
+                html = _fetch_bracket_html(user, tour)
+                raw_picks = _extract_picks(html)
+                eliminated = {r['loser'] for r in match_results.values() if r.get('loser')}
+                named = {}
+                for (rnd, mpos), slot in raw_picks.items():
+                    if slot not in r1_draw:
+                        continue
+                    player_name, _ = r1_draw[slot]
+                    result = match_results.get((rnd, mpos))
+                    if result:
+                        status = 'correct' if result.get('winner') == player_name else 'wrong'
+                    elif player_name in eliminated:
+                        status = 'eliminated'
+                    else:
+                        status = 'future'
+                    named[f'{rnd}:{mpos}'] = {'player': player_name, 'status': status}
+                self.send_body(json.dumps({'picks': named}).encode(), 'application/json')
+            except Exception as e:
+                self.send_body(json.dumps({'picks': {}}).encode(), 'application/json')
         elif self.path.startswith('/api/bracket'):
             try:
                 tour = 'atp'

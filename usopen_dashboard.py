@@ -349,7 +349,7 @@ body {
 <!-- HERO -->
 <div class="hero">
   <div class="hero-inner">
-    <div class="hero-trophy"><img src="https://upload.wikimedia.org/wikipedia/en/thumb/7/7e/US_Open_tennis_2022_logo.svg/250px-US_Open_tennis_2022_logo.svg.png" alt="US Open" style="height:60px;width:auto;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.35));"></div>
+    <div class="hero-trophy"><img src="https://a.espncdn.com/i/teamlogos/tennis/500/uso.png" alt="US Open" style="height:60px;width:auto;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.35));"></div>
     <div class="hero-text">
       <div class="hero-title">US Open <span>2026</span></div>
       <div class="hero-subtitle">The US Open · Flushing Meadows, New York</div>
@@ -1714,7 +1714,12 @@ _group_scores_cache_ts = {}   # cache_key -> timestamp
 def _fetch_tour_score(username, tour):
     """
     Fetch a user's ATP or WTA bracket page and return their score as an int,
-    or None on failure.  The page renders the score as e.g. "380 pts".
+    or None on failure.
+
+    The score lives in the turbo-stream flat array as:
+      ..., 'score', <int>, 'lastHash', ...
+    That context (adjacent to 'picks' and 'lastHash') identifies it as the
+    bracket score rather than ATP/WTA ranking points.
     """
     try:
         url = f'https://served.bracket.tennis/tournaments/{TOURNAMENT_SLUG}/{tour}/brackets/{username}'
@@ -1724,9 +1729,17 @@ def _fetch_tour_score(username, tour):
         })
         with urllib.request.urlopen(req, timeout=15) as r:
             html = r.read().decode('utf-8', errors='replace')
-        m = re.search(r'(\d+)\s*pts', html, re.I)
-        if m:
-            return int(m.group(1))
+        flat = _parse_flat_array(html)
+        if not flat:
+            return None
+        for i, item in enumerate(flat):
+            if (item == 'score'
+                    and i + 1 < len(flat)
+                    and isinstance(flat[i + 1], int)
+                    and flat[i + 1] >= 0
+                    and i + 2 < len(flat)
+                    and flat[i + 2] == 'lastHash'):
+                return flat[i + 1]
     except Exception:
         pass
     return None

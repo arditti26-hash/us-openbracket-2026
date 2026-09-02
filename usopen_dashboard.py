@@ -1212,29 +1212,31 @@ def _extract_bracket_data(flat):
 
 def _extract_picks(html):
     """
-    Extract user picks from bracket page HTML.
+    Extract user picks from bracket page HTML via the turbo-stream flat array.
+    The flat array contains 'picks' followed immediately by the picks JSON string.
     Returns {(round, match_pos): draw_slot} or {}.
-    Picks are embedded as {"_v":2,"1:1":slot,...}.
     """
-    scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.S)
-    big = max(scripts, key=len) if scripts else ''
-    m = re.search(r'picks\\",\\"(\{.*?\})\\"'  , big)
-    if not m:
-        return {}
-    raw = m.group(1).replace('\\\\\\"'  , '"')
-    try:
-        data = json.loads(raw)
-    except Exception:
-        return {}
-    picks = {}
-    for key, val in data.items():
-        if ':' in str(key):
-            parts = key.split(':')
-            try:
-                picks[(int(parts[0]), int(parts[1]))] = int(val)
-            except (ValueError, TypeError):
-                pass
-    return picks
+    flat = _parse_flat_array(html)
+    if flat:
+        for i, item in enumerate(flat):
+            if item == 'picks' and i + 1 < len(flat):
+                raw = flat[i + 1]
+                if isinstance(raw, str) and raw.startswith('{'):
+                    try:
+                        data = json.loads(raw)
+                        picks = {}
+                        for key, val in data.items():
+                            if ':' in str(key):
+                                parts = key.split(':')
+                                try:
+                                    picks[(int(parts[0]), int(parts[1]))] = int(val)
+                                except (ValueError, TypeError):
+                                    pass
+                        if picks:
+                            return picks
+                    except Exception:
+                        pass
+    return {}
 
 
 def _calculate_score(picks, r1_draw, match_results):
@@ -1824,17 +1826,20 @@ def get_data(members=None):
     if not members:
         return {'players': [], 'updated': _now_et().strftime('%b %d, %Y · %I:%M:%S %p ET')}
 
-    # Pull scores directly from served.bracket.tennis (exact, no local re-calculation)
+    # Pull exact scores from served.bracket.tennis
     group_scores = _scrape_group_scores(members)
+
+    # Shared draw + results needed for max-score calculation
+    atp_draw, atp_results, _ = _get_tournament_data('atp', members)
+    wta_draw, wta_results, _ = _get_tournament_data('wta', members)
 
     players = []
     for i, member in enumerate(members):
         s = group_scores.get(member.lower(), {})
-        atp_score    = s.get('atp')
-        wta_score    = s.get('wta')
-        combined     = s.get('combined')
+        atp_score = s.get('atp')
+        wta_score = s.get('wta')
+        combined  = s.get('combined')
 
-        # Derive combined if only one tour score is available
         if combined is None:
             if atp_score is not None and wta_score is not None:
                 combined = atp_score + wta_score
@@ -1843,12 +1848,37 @@ def get_data(members=None):
             elif wta_score is not None:
                 combined = wta_score
 
+        # Max score: calculated locally from picks + remaining bracket
+        atp_max = wta_max = None
+        try:
+            html = _fetch_bracket_html(member, 'atp')
+            picks = _extract_picks(html)
+            if picks and atp_draw:
+                atp_max = _calculate_max_score(picks, atp_draw, atp_results)
+        except Exception:
+            pass
+        try:
+            html = _fetch_bracket_html(member, 'wta')
+            picks = _extract_picks(html)
+            if picks and wta_draw:
+                wta_max = _calculate_max_score(picks, wta_draw, wta_results)
+        except Exception:
+            pass
+
+        max_combined = None
+        if atp_max is not None and wta_max is not None:
+            max_combined = atp_max + wta_max
+        elif atp_max is not None:
+            max_combined = atp_max
+        elif wta_max is not None:
+            max_combined = wta_max
+
         players.append({
             'username':     member,
             'atp':          atp_score,
             'wta':          wta_score,
             'combined':     combined,
-            'max_combined': None,
+            'max_combined': max_combined,
             'color_idx':    i % len(COLORS),
         })
 

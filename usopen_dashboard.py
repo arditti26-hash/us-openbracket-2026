@@ -363,9 +363,9 @@ body {
 <!-- GRASS / S&C STRIP -->
 <div class="sc-banner">
   <div class="sc-grass"><span></span><span></span><span></span><span></span><span></span></div>
-  <span class="berry">🍓</span>
+  <span>🍈</span>
   <span>Page &amp; Will's US Open Challenge</span>
-  <span class="berry">🍓</span>
+  <span>🍈</span>
   <div class="sc-grass"><span></span><span></span><span></span><span></span><span></span></div>
 </div>
 
@@ -724,7 +724,7 @@ body {
     <div class="card-header" style="margin-bottom:0;">
       <div>
         <div class="card-title">📊 US Open Odds</div>
-        <div class="card-sub">Outright winner · DraftKings · updated June 30</div>
+        <div class="card-sub">Outright winner · DraftKings · updated August 24</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <button id="odds-btn-atp" onclick="switchOddsTour('atp')"
@@ -893,7 +893,7 @@ async function loadData() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     allData = await res.json();
     render();
-    document.getElementById('footer').innerHTML = '🎾 &nbsp;US Open 2026 · Flushing Meadows · New York · Scores from served.bracket.tennis · Updated: ' + allData.updated;
+    document.getElementById('footer').innerHTML = '🍈 &nbsp;US Open 2026 · Flushing Meadows · New York · Scores from served.bracket.tennis · Updated: ' + allData.updated;
   } catch(e) {
     document.getElementById('status-text').textContent = 'Error loading data — ' + e.message;
   }
@@ -1439,6 +1439,11 @@ _STATIC_ODDS = {
 # ── AI daily summary ─────────────────────────────────────────────────────────
 
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+ODDS_UPDATE_TOKEN = os.environ.get('ODDS_UPDATE_TOKEN', '')
+
+# Live odds override — populated by /api/update-odds, falls back to _STATIC_ODDS
+_live_odds = {}
+_live_odds_updated = ''
 
 _summary_cache    = {}
 _summary_cache_ts = 0
@@ -1646,17 +1651,9 @@ def _fetch_ai_summary():
 
 
 def _fetch_dk_odds():
-    # Try to load from usopen_odds.json (updated daily by scheduled task)
-    json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'usopen_odds.json')
-    try:
-        with open(json_path, 'r') as f:
-            data = json.load(f)
-        atp = [(item['odds'], item['player']) for item in data.get('mens', data.get('atp', []))[:10]]
-        wta = [(item['odds'], item['player']) for item in data.get('womens', data.get('wta', []))[:10]]
-        if atp or wta:
-            return {'atp': atp, 'wta': wta, 'error': None}
-    except Exception:
-        pass
+    # Use live odds pushed by scheduled agent if available
+    if _live_odds.get('atp') or _live_odds.get('wta'):
+        return {'atp': _live_odds.get('atp', []), 'wta': _live_odds.get('wta', []), 'error': None, 'updated': _live_odds_updated}
     # Fall back to hardcoded odds
     return {'atp': _STATIC_ODDS['atp'], 'wta': _STATIC_ODDS['wta'], 'error': None}
 
@@ -1892,6 +1889,33 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_body(json.dumps({'atp':[],'wta':[],'error':str(e)}).encode(), 'application/json')
         else:
             self.send_body(BUILT_HTML, 'text/html; charset=utf-8')
+
+    def do_POST(self):
+        global _live_odds, _live_odds_updated
+        if self.path == '/api/update-odds':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body   = json.loads(self.rfile.read(length).decode())
+                token  = self.headers.get('X-Update-Token', '')
+                if ODDS_UPDATE_TOKEN and token != ODDS_UPDATE_TOKEN:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                mens   = [(item['odds_american'], item['player']) for item in body.get('mens', [])[:10]]
+                womens = [(item['odds_american'], item['player']) for item in body.get('womens', [])[:10]]
+                if mens or womens:
+                    _live_odds = {'atp': mens, 'wta': womens}
+                    _live_odds_updated = body.get('updated', _now_et().strftime('%B %d, %Y'))
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'ok': True}).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+        else:
+            self.send_response(404)
+            self.end_headers()
 
     def log_message(self, fmt, *args):
         pass  # suppress server log noise

@@ -1707,8 +1707,8 @@ def _fetch_global_ranks():
 
 # ── Group score scraper — pulls exact scores from served.bracket.tennis ───────
 
-_group_scores_cache    = {}
-_group_scores_cache_ts = 0.0
+_group_scores_cache    = {}   # cache_key -> {username: scores}
+_group_scores_cache_ts = {}   # cache_key -> timestamp
 
 
 def _fetch_tour_score(username, tour):
@@ -1732,20 +1732,24 @@ def _fetch_tour_score(username, tour):
     return None
 
 
-def _scrape_group_scores():
+def _scrape_group_scores(members=None):
     """
     Fetch each member's ATP and WTA bracket pages from served.bracket.tennis,
     extract the rendered score ("NNN pts"), and return:
       {username_lower: {'atp': int|None, 'wta': int|None, 'combined': int|None}}
-    Cached 5 minutes.
+    Cached 5 minutes per unique member list.
     """
     global _group_scores_cache, _group_scores_cache_ts
+    if members is None:
+        members = MEMBERS
     now = time.time()
-    if _group_scores_cache and now - _group_scores_cache_ts < 300:
-        return _group_scores_cache
+    cache_key = ','.join(sorted(m.lower() for m in members))
+    cached = _group_scores_cache.get(cache_key)
+    if cached and now - _group_scores_cache_ts.get(cache_key, 0) < 300:
+        return cached
 
     out = {}
-    for member in MEMBERS:
+    for member in members:
         atp = _fetch_tour_score(member, 'atp')
         wta = _fetch_tour_score(member, 'wta')
         combined = None
@@ -1758,10 +1762,10 @@ def _scrape_group_scores():
         out[member.lower()] = {'atp': atp, 'wta': wta, 'combined': combined}
 
     if out:
-        _group_scores_cache    = out
-        _group_scores_cache_ts = now
+        _group_scores_cache[cache_key]    = out
+        _group_scores_cache_ts[cache_key] = now
 
-    return _group_scores_cache
+    return out
 
 
 # Tournament data cache: shared draw+results across all users per request
@@ -1801,7 +1805,7 @@ def get_data(members=None):
         return {'players': [], 'updated': _now_et().strftime('%b %d, %Y · %I:%M:%S %p ET')}
 
     # Pull scores directly from served.bracket.tennis (exact, no local re-calculation)
-    group_scores = _scrape_group_scores()
+    group_scores = _scrape_group_scores(members)
 
     players = []
     for i, member in enumerate(members):

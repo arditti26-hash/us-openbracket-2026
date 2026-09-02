@@ -500,11 +500,10 @@ body {
       </div>
     </div>
     <!-- Pick legend (shown only when a player is selected) -->
-    <div id="pick-legend" style="display:none;padding:6px 20px 0;font-size:0.72rem;font-family:sans-serif;color:#666;gap:14px;flex-wrap:wrap;">
-      <span style="color:#c8a020;font-weight:700;">✓ Picked · correct</span>
-      <span style="color:#c0392b;font-weight:700;">✗ Picked · eliminated</span>
-      <span style="color:#1a3a6e;font-weight:700;">● Picked · still alive</span>
-      <span style="color:#00512e;font-weight:700;">■ Match winner (not picked)</span>
+    <div id="pick-legend" style="display:none;padding:8px 20px 0;font-size:0.72rem;font-family:sans-serif;color:#666;gap:16px;flex-wrap:wrap;">
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#d4f0dc;border:1px solid #9ecfad;vertical-align:middle;margin-right:4px;"></span><span style="color:#00512e;font-weight:700;">Correct pick</span></span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#ffe0e0;border:1px solid #e8a0a0;vertical-align:middle;margin-right:4px;"></span><span style="color:#c0392b;font-weight:700;">Eliminated</span></span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#fff;border:1px solid #e0dbd0;vertical-align:middle;margin-right:4px;"></span><span style="color:#666;font-weight:700;">Future pick</span></span>
     </div>
 
     <!-- Single scrollable container: labels + bracket scroll together -->
@@ -541,6 +540,10 @@ body {
       _bPickUser = username;
       var legend = document.getElementById('pick-legend');
       legend.style.display = username ? 'flex' : 'none';
+      var sub = document.querySelector('#bracket-card .card-sub');
+      if (sub) sub.textContent = username
+        ? username + "\\u2019s predicted bracket"
+        : ‘Real-time draw \xb7 served.bracket.tennis’;
       loadBracket(_bTour);
     };
 
@@ -579,7 +582,7 @@ body {
       function doRender(data) {
         if (_bPickUser) {
           fetchPicks(_bPickUser, tour, function(picks) {
-            renderBracket(data, body, labelsEl, picks);
+            renderPickBracket(picks, body, labelsEl);
           });
         } else {
           renderBracket(data, body, labelsEl, {});
@@ -817,6 +820,92 @@ body {
           slot.appendChild(card);
           col.appendChild(slot);
         });
+
+        wrap.appendChild(col);
+      }
+
+      container.innerHTML = '';
+      container.appendChild(wrap);
+    }
+
+    // Static predicted bracket for a selected group member
+    function renderPickBracket(picks, container, labelsEl) {
+      if (!picks || !Object.keys(picks).length) {
+        container.innerHTML = '<div style="padding:40px;text-align:center;color:#aaa;font-size:0.85rem;font-family:sans-serif;">No picks found for this user.</div>';
+        labelsEl.innerHTML = '';
+        return;
+      }
+
+      var maxRound = 7;
+      var TOTAL_PH = 3200; // matches live bracket height
+      var PICK_H = 26;
+
+      // Round labels
+      labelsEl.innerHTML = '';
+      labelsEl.style.display = 'flex';
+      labelsEl.style.minWidth = (maxRound * (COL_W + 1)) + 'px';
+      for (var rn = 1; rn <= maxRound; rn++) {
+        var lbl = document.createElement('div');
+        lbl.style.cssText = 'width:' + COL_W + 'px;flex-shrink:0;text-align:center;padding:5px 0 6px;font-size:0.7rem;font-weight:700;letter-spacing:1px;font-family:sans-serif;color:' + (ROUND_COLORS[rn] || '#333') + ';border-right:1px solid #e8e4d8;';
+        lbl.textContent = ROUND_LABELS[rn] || ('R' + rn);
+        labelsEl.appendChild(lbl);
+      }
+
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;height:' + TOTAL_PH + 'px;position:relative;';
+
+      for (var rnd = 1; rnd <= maxRound; rnd++) {
+        var matchCount = Math.round(64 / Math.pow(2, rnd - 1));
+        var slotH = TOTAL_PH / matchCount;
+
+        var col = document.createElement('div');
+        col.style.cssText = 'width:' + COL_W + 'px;flex-shrink:0;border-right:1px solid #e8e4d8;position:relative;height:' + TOTAL_PH + 'px;';
+
+        for (var pos = 1; pos <= matchCount; pos++) {
+          var key = rnd + ':' + pos;
+          var pick = picks[key];
+          var status = pick ? pick.status : 'none';
+          var playerName = pick ? pick.player : null;
+
+          var centerY = (pos - 0.5) * slotH;
+
+          var bg, color, fw, borderColor;
+          if (!pick) {
+            bg = '#f5f4f0'; color = '#bbb'; fw = '400'; borderColor = '#e8e4d8';
+          } else if (status === 'correct') {
+            bg = '#d4f0dc'; color = '#00512e'; fw = '700'; borderColor = '#9ecfad';
+          } else if (status === 'wrong' || status === 'eliminated') {
+            bg = '#ffe0e0'; color = '#c0392b'; fw = '400'; borderColor = '#e8a0a0';
+          } else {
+            bg = '#fff'; color = '#1a1a1a'; fw = '400'; borderColor = '#e0dbd0';
+          }
+
+          var card = document.createElement('div');
+          card.style.cssText = [
+            'position:absolute',
+            'left:4px',
+            'right:4px',
+            'top:' + Math.round(centerY - PICK_H / 2) + 'px',
+            'height:' + PICK_H + 'px',
+            'line-height:' + PICK_H + 'px',
+            'padding:0 6px',
+            'font-size:10.5px',
+            'font-family:sans-serif',
+            'font-weight:' + fw,
+            'color:' + color,
+            'background:' + bg,
+            'border:1px solid ' + borderColor,
+            'border-radius:4px',
+            'white-space:nowrap',
+            'overflow:hidden',
+            'text-overflow:ellipsis',
+            'box-sizing:border-box',
+            'text-decoration:' + (status === 'wrong' || status === 'eliminated' ? 'line-through' : 'none'),
+          ].join(';');
+
+          card.textContent = playerName ? lastName(playerName) : '—';
+          col.appendChild(card);
+        }
 
         wrap.appendChild(col);
       }

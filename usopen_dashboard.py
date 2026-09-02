@@ -349,7 +349,16 @@ body {
 <!-- HERO -->
 <div class="hero">
   <div class="hero-inner">
-    <div class="hero-trophy"><img src="https://a.espncdn.com/i/teamlogos/tennis/500/uso.png" alt="US Open" style="height:60px;width:auto;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.35));"></div>
+    <div class="hero-trophy">
+      <svg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg" style="filter:drop-shadow(0 2px 6px rgba(0,0,0,0.45))">
+        <circle cx="30" cy="30" r="30" fill="#1a3a6e"/>
+        <!-- flame -->
+        <path d="M30 8 C30 8 22 18 22 26 C22 30 25 33 28 33 C26 30 27 27 30 25 C30 25 29 30 32 32 C34 30 34 27 32 24 C35 27 36 31 34 34 C36 33 38 30 38 26 C38 18 30 8 30 8Z" fill="#c8a020"/>
+        <path d="M30 22 C30 22 27 26 27 29 C27 31.5 28.5 33 30 33 C31.5 33 33 31.5 33 29 C33 26 30 22 30 22Z" fill="#f5d76e"/>
+        <!-- text -->
+        <text x="30" y="44" text-anchor="middle" font-family="Arial,sans-serif" font-weight="700" font-size="7.5" fill="white" letter-spacing="1">US OPEN</text>
+      </svg>
+    </div>
     <div class="hero-text">
       <div class="hero-title">US Open <span>2026</span></div>
       <div class="hero-subtitle">The US Open · Flushing Meadows, New York</div>

@@ -542,8 +542,8 @@ body {
       legend.style.display = username ? 'flex' : 'none';
       var sub = document.querySelector('#bracket-card .card-sub');
       if (sub) sub.textContent = username
-        ? username + "\\u2019s predicted bracket"
-        : ‘Real-time draw \xb7 served.bracket.tennis’;
+        ? (username + "’s predicted bracket")
+        : "Real-time draw · served.bracket.tennis";
       loadBracket(_bTour);
     };
 

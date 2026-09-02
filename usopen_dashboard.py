@@ -501,9 +501,10 @@ body {
     </div>
     <!-- Pick legend (shown only when a player is selected) -->
     <div id="pick-legend" style="display:none;padding:6px 20px 0;font-size:0.72rem;font-family:sans-serif;color:#666;gap:14px;flex-wrap:wrap;">
-      <span style="color:#c8a020;font-weight:700;">● Picked · correct</span>
-      <span style="color:#c0392b;font-weight:700;">● Picked · eliminated</span>
+      <span style="color:#c8a020;font-weight:700;">✓ Picked · correct</span>
+      <span style="color:#c0392b;font-weight:700;">✗ Picked · eliminated</span>
       <span style="color:#1a3a6e;font-weight:700;">● Picked · still alive</span>
+      <span style="color:#00512e;font-weight:700;">■ Match winner (not picked)</span>
     </div>
 
     <!-- Single scrollable container: labels + bracket scroll together -->
@@ -706,25 +707,37 @@ body {
           slot.style.cssText = 'flex:1;display:flex;align-items:center;padding:0 3px;';
 
           var cardBorder = isLive ? '0 0 0 2px #c0392b'
-            : (matchPick ? '0 0 0 2px ' + (matchPick.status === 'correct' ? '#c8a020' : matchPick.status === 'wrong' ? '#c0392b' : '#1a3a6e') : '0 1px 3px rgba(0,0,0,0.08)');
+            : (matchPick ? '0 0 0 2px ' + (matchPick.status === 'correct' ? '#c8a020' : matchPick.status === 'wrong' || matchPick.status === 'eliminated' ? '#c0392b' : '#1a3a6e') : '0 1px 3px rgba(0,0,0,0.08)');
           var card = document.createElement('div');
           card.style.cssText = 'width:100%;border-radius:4px;overflow:hidden;box-shadow:' + cardBorder + ';';
 
-          [
+          // For future matches, inject predicted player into first TBD slot
+          var displayPlayers = [
             { name: m.p1, rank: m.p1_rank, country: m.p1_country },
             { name: m.p2, rank: m.p2_rank, country: m.p2_country }
-          ].forEach(function(p, pi) {
+          ];
+          if (matchPick && matchPick.status === 'future') {
+            var tbdIdx = displayPlayers.findIndex(function(p) { return !p.name; });
+            if (tbdIdx >= 0) {
+              displayPlayers[tbdIdx] = { name: matchPick.player, rank: null, country: null, isPrediction: true };
+            }
+          }
+
+          displayPlayers.forEach(function(p, pi) {
             var isWinner = isComplete && m.winner === p.name;
             var isLoser  = isComplete && m.winner !== p.name && !!p.name;
             var isTbd    = !p.name;
 
             // Per-player pick state
-            var isPicked = matchPick && matchPick.player === p.name;
+            var isPrediction = !!p.isPrediction;
+            var isPicked = isPrediction || (matchPick && matchPick.player === p.name);
             var pickStatus = isPicked ? matchPick.status : null;
 
             // Background/border: pick overlay takes priority over win/loss colouring
             var bgColor, textColor, borderColor, fontWeight;
-            if (isPicked && pickStatus === 'correct') {
+            if (isPrediction) {
+              bgColor = '#eef2fa'; textColor = '#1a3a6e'; borderColor = '#7a9fd4'; fontWeight = '600';
+            } else if (isPicked && pickStatus === 'correct') {
               bgColor = '#fffbe6'; textColor = '#7a5c00'; borderColor = '#e6c84a'; fontWeight = '700';
             } else if (isPicked && pickStatus === 'wrong') {
               bgColor = '#fff0f0'; textColor = '#c0392b'; borderColor = '#e8a0a0'; fontWeight = '600';
@@ -762,12 +775,17 @@ body {
             var flag = p.country ? countryFlag(p.country) : '';
             var seed = (p.rank && p.rank <= 32) ? '[' + p.rank + ']' : '';
             var nameSpan = document.createElement('span');
-            nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
+            nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-style:' + (isPrediction ? 'italic' : 'normal') + ';';
             nameSpan.textContent = (flag ? flag + ' ' : '') + (seed ? seed + ' ' : '') + lastName(p.name);
             row.appendChild(nameSpan);
 
-            // Pick badge (shown when this player is the pick)
-            if (isPicked) {
+            // Pick badge
+            if (isPrediction) {
+              var badge = document.createElement('span');
+              badge.style.cssText = 'flex-shrink:0;font-size:9px;font-weight:700;color:#1a3a6e;margin-left:4px;background:#d0dff5;border-radius:3px;padding:0 3px;';
+              badge.textContent = 'PICK';
+              row.appendChild(badge);
+            } else if (isPicked) {
               var badge = document.createElement('span');
               var badgeIcon = pickStatus === 'correct' ? '✓' : pickStatus === 'wrong' || pickStatus === 'eliminated' ? '✗' : '●';
               var badgeColor = pickStatus === 'correct' ? '#c8a020' : pickStatus === 'wrong' || pickStatus === 'eliminated' ? '#c0392b' : '#1a3a6e';

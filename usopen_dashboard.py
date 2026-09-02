@@ -1547,9 +1547,16 @@ def _build_results_text():
         except Exception:
             pass
 
-    # Today's results direct from ESPN (most reliable date-filtered source)
+    # Completed results: ESPN first (date-filtered), fall back to full bracket results
     today_lines = _fetch_today_espn_scores()
-    today_section = "Today's completed matches (ESPN):\n" + '\n'.join(today_lines[:20]) if today_lines else "Today's completed matches: none confirmed yet via ESPN"
+    if today_lines:
+        today_section = "Today's completed matches:\n" + '\n'.join(today_lines[:20])
+    else:
+        bracket_lines = atp_done + wta_done
+        if bracket_lines:
+            today_section = "Completed matches so far this tournament:\n" + '\n'.join(bracket_lines[:30])
+        else:
+            today_section = "Completed matches: none confirmed yet"
 
     atp_ahead = "Men's upcoming (bracket):\n" + '\n'.join(atp_upcoming[:15]) if atp_upcoming else "Men's upcoming: none scheduled yet"
     wta_ahead = "Women's upcoming (bracket):\n" + '\n'.join(wta_upcoming[:15]) if wta_upcoming else "Women's upcoming: none scheduled yet"

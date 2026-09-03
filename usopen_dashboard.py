@@ -2665,11 +2665,48 @@ class Handler(BaseHTTPRequestHandler):
                         if part.startswith('tour='):
                             tour = part[5:].lower()
 
-                # ESPN is the only date-accurate source — scoreboard?dates=YYYYMMDD
-                # returns all of today's matches: completed, live, and upcoming.
+                # Bracket: all completed matches from the current active round
+                bracket_completed = []
+                try:
+                    _, results, all_matches = _get_tournament_data(tour, MEMBERS)
+                    round_names = {1:'R1',2:'R2',3:'R3',4:'R4',5:'QF',6:'SF',7:'Final'}
+                    score_lookup = {(m['round'], m['pos']): m.get('score','')
+                                    for m in all_matches if m.get('winner') and m.get('score')}
+                    completed_rounds = {m.get('round',0) for m in all_matches
+                                        if m.get('winner') and not m.get('is_live')}
+                    current_round = max(completed_rounds) if completed_rounds else 0
+                    for m in all_matches:
+                        if m.get('winner') and not m.get('is_live') and m.get('round') == current_round:
+                            bracket_completed.append({
+                                'p1': m.get('p1',''), 'p2': m.get('p2',''),
+                                'p1_country': m.get('p1_country',''), 'p2_country': m.get('p2_country',''),
+                                'winner': m.get('winner',''),
+                                'score': score_lookup.get((m['round'], m['pos']),''),
+                                'is_live': False, 'scheduled_time': '', 'status': 'final',
+                                'round': round_names.get(m.get('round',0), ''),
+                            })
+                except Exception:
+                    pass
+
+                # ESPN: live + upcoming (scoreboard drops completed matches over time)
                 espn_matches = _fetch_espn_today_matches(tour)
-                source = 'espn' if espn_matches else 'none'
-                self.send_body(json.dumps({'matches': espn_matches, 'source': source}).encode(), 'application/json')
+
+                # Merge: ESPN wins on duplicates (has live scores); bracket fills completed
+                seen_pairs = set()
+                merged = []
+                for m in espn_matches:
+                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
+                    if pair not in seen_pairs:
+                        merged.append(m)
+                        seen_pairs.add(pair)
+                for m in bracket_completed:
+                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
+                    if pair not in seen_pairs:
+                        merged.append(m)
+                        seen_pairs.add(pair)
+
+                source = 'espn' if espn_matches else ('bracket' if merged else 'none')
+                self.send_body(json.dumps({'matches': merged, 'source': source}).encode(), 'application/json')
             except Exception as e:
                 self.send_body(json.dumps({'matches': [], 'source': 'error', 'error': str(e)}).encode(), 'application/json')
         elif self.path.startswith('/api/bracket'):

@@ -1896,8 +1896,12 @@ def _fetch_espn_today_matches(tour):
     # Try tour slug first, then generic; also try generic alone since it covers both tours.
     slug = 'atp' if is_men else 'wta'
     endpoints = [
-        f'https://site.api.espn.com/apis/site/v2/sports/tennis/{slug}/scoreboard?dates={today_str}',
-        f'https://site.api.espn.com/apis/site/v2/sports/tennis/scoreboard?dates={today_str}',
+        # US Open specific — most complete for Grand Slam day results
+        f'https://site.api.espn.com/apis/site/v2/sports/tennis/usopen/scoreboard?dates={today_str}&limit=100',
+        # Tour-specific fallback
+        f'https://site.api.espn.com/apis/site/v2/sports/tennis/{slug}/scoreboard?dates={today_str}&limit=100',
+        # Generic tennis fallback
+        f'https://site.api.espn.com/apis/site/v2/sports/tennis/scoreboard?dates={today_str}&limit=100',
     ]
 
     seen_pairs = set()  # deduplicate across endpoints
@@ -2661,67 +2665,11 @@ class Handler(BaseHTTPRequestHandler):
                         if part.startswith('tour='):
                             tour = part[5:].lower()
 
-                # ESPN: live scores + upcoming schedule (scoreboard is ephemeral — drops completed)
+                # ESPN is the only date-accurate source — scoreboard?dates=YYYYMMDD
+                # returns all of today's matches: completed, live, and upcoming.
                 espn_matches = _fetch_espn_today_matches(tour)
-
-                # Bracket: authoritative source for completed matches.
-                # "Today" = the current active rounds. We determine the current round as
-                # the highest round that has ANY completed match; show all completed matches
-                # in that round AND the round immediately before it (covers day-straddle).
-                bracket_completed = []
-                try:
-                    _, results, all_matches = _get_tournament_data(tour, MEMBERS)
-                    round_names = {1:'R1',2:'R2',3:'R3',4:'R4',5:'QF',6:'SF',7:'Final'}
-                    score_lookup = {(m['round'], m['pos']): m.get('score','')
-                                    for m in all_matches if m.get('winner') and m.get('score')}
-
-                    # Highest round with a completed match = current active round
-                    completed_rounds = set()
-                    for m in all_matches:
-                        if m.get('winner') and not m.get('is_live'):
-                            completed_rounds.add(m.get('round', 0))
-                    current_round = max(completed_rounds) if completed_rounds else 0
-                    # Show completed matches from current round and the one before
-                    show_rounds = {current_round, current_round - 1} if current_round > 1 else {current_round}
-
-                    for m in all_matches:
-                        if m.get('winner') and not m.get('is_live') and m.get('round') in show_rounds:
-                            bracket_completed.append({
-                                'p1': m.get('p1',''),
-                                'p2': m.get('p2',''),
-                                'p1_country': m.get('p1_country',''),
-                                'p2_country': m.get('p2_country',''),
-                                'winner': m.get('winner',''),
-                                'score': score_lookup.get((m['round'], m['pos']),''),
-                                'is_live': False,
-                                'scheduled_time': '',
-                                'status': 'final',
-                                'round': round_names.get(m.get('round',0), ''),
-                            })
-                except Exception:
-                    pass
-
-                # Merge: bracket provides all completed; ESPN provides live + upcoming.
-                # ESPN completed entries take priority (have live scores); bracket fills the rest.
-                seen_pairs = set()
-                merged = []
-
-                # First pass: ESPN matches (live, upcoming, and any ESPN-confirmed finals)
-                for m in espn_matches:
-                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
-                    if pair not in seen_pairs:
-                        merged.append(m)
-                        seen_pairs.add(pair)
-
-                # Second pass: bracket completed not already covered by ESPN
-                for m in bracket_completed:
-                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
-                    if pair not in seen_pairs:
-                        merged.append(m)
-                        seen_pairs.add(pair)
-
-                source = 'espn' if espn_matches else ('bracket' if merged else 'none')
-                self.send_body(json.dumps({'matches': merged, 'source': source}).encode(), 'application/json')
+                source = 'espn' if espn_matches else 'none'
+                self.send_body(json.dumps({'matches': espn_matches, 'source': source}).encode(), 'application/json')
             except Exception as e:
                 self.send_body(json.dumps({'matches': [], 'source': 'error', 'error': str(e)}).encode(), 'application/json')
         elif self.path.startswith('/api/bracket'):

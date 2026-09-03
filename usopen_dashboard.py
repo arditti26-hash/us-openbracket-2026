@@ -965,12 +965,20 @@ body {
       return parts[0][0] + '. ' + parts.slice(1).join(' ');
     }
 
+    // Inject responsive grid style once
+    if (!document.getElementById('tm-style')) {
+      var s = document.createElement('style');
+      s.id = 'tm-style';
+      s.textContent = '.tm-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}'
+        + '@media(max-width:600px){.tm-grid{grid-template-columns:1fr}}';
+      document.head.appendChild(s);
+    }
+
     function renderMatches(atpData, wtaData, isEspn) {
       var body = document.getElementById('today-matches-body');
       var sub  = document.getElementById('today-matches-sub');
 
       function getActiveRound(matches) {
-        // Find the LOWEST round that still has any live or pending match — that's today's action
         var minPending = 99;
         matches.forEach(function(m) {
           if (!m.winner || m.is_live) {
@@ -984,17 +992,65 @@ body {
       if (isEspn) {
         atpMs = atpData;
         wtaMs = wtaData;
-        sub.textContent = "Live · Completed · Upcoming";
+        sub.textContent = "Today · US Open";
       } else {
         var atpRound = getActiveRound(atpData);
         var wtaRound = getActiveRound(wtaData);
-        sub.textContent = 'Men\'s ' + (ROUND_NAMES[atpRound]||'') + ' · Women\'s ' + (ROUND_NAMES[wtaRound]||'');
+        sub.textContent = "Men's " + (ROUND_NAMES[atpRound]||'') + " \xb7 Women's " + (ROUND_NAMES[wtaRound]||'');
         function matchesForRound(matches, rnd) {
           return matches.filter(function(m){ return m.round === rnd; })
             .sort(function(a,b){ return a.pos - b.pos; });
         }
         atpMs = matchesForRound(atpData, atpRound);
         wtaMs = matchesForRound(wtaData, wtaRound);
+      }
+
+      // matchRow: two-line stacked layout (p1 above p2), dot indicator, score/time right
+      function matchRow(m, state) {
+        var p1 = fmtName(m.p1);
+        var p2 = fmtName(m.p2);
+        var p1f = flagOf(m.p1_country);
+        var p2f = flagOf(m.p2_country);
+        var seed1 = (m.p1_rank && m.p1_rank <= 32) ? ' <span style="color:#bbb;font-size:0.68rem;">[' + m.p1_rank + ']</span>' : '';
+        var seed2 = (m.p2_rank && m.p2_rank <= 32) ? ' <span style="color:#bbb;font-size:0.68rem;">[' + m.p2_rank + ']</span>' : '';
+
+        var rowBg = state === 'live' ? 'rgba(192,57,43,0.04)' : '';
+
+        // Status dot: red animated = live, green check = final, gray circle = upcoming
+        var dot;
+        if (state === 'live') {
+          dot = '<span style="width:8px;height:8px;border-radius:50%;background:#c0392b;display:inline-block;flex-shrink:0;animation:blink 1.5s ease-in-out infinite;"></span>';
+        } else if (state === 'done') {
+          dot = '<span style="color:#00512e;font-size:0.8rem;line-height:1;flex-shrink:0;">&#10003;</span>';
+        } else {
+          dot = '<span style="width:8px;height:8px;border-radius:50%;border:1.5px solid #ccc;display:inline-block;flex-shrink:0;"></span>';
+        }
+
+        // Right column: score or time
+        var right;
+        if (m.score) {
+          var scoreColor = state === 'live' ? '#c0392b' : '#555';
+          right = '<span style="color:' + scoreColor + ';font-size:0.75rem;white-space:nowrap;">' + m.score + '</span>';
+        } else if (state === 'upcoming' && m.scheduled_time) {
+          right = '<span style="color:#888;font-size:0.72rem;white-space:nowrap;">' + m.scheduled_time + '</span>';
+        } else {
+          right = '<span style="color:#ccc;font-size:0.75rem;">—</span>';
+        }
+
+        // Winner styling
+        var p1w = m.winner && (m.winner === m.p1 || (isEspn && m.p1 && m.winner.indexOf(m.p1.split('. ')[1] || m.p1) !== -1));
+        var p2w = m.winner && (m.winner === m.p2 || (isEspn && m.p2 && m.winner.indexOf(m.p2.split('. ')[1] || m.p2) !== -1));
+        var p1style = p1w ? 'font-weight:700;color:#1a1a1a;' : (m.winner ? 'color:#aaa;' : 'color:#1a1a1a;');
+        var p2style = p2w ? 'font-weight:700;color:#1a1a1a;' : (m.winner ? 'color:#aaa;' : 'color:#1a1a1a;');
+
+        var players = '<div style="' + p1style + 'font-size:0.82rem;line-height:1.4;">' + p1f + p1 + seed1 + '</div>'
+          + '<div style="' + p2style + 'font-size:0.82rem;line-height:1.4;">' + p2f + p2 + seed2 + '</div>';
+
+        return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f0ede6;background:' + rowBg + ';">'
+          + '<div style="display:flex;align-items:center;justify-content:center;width:14px;flex-shrink:0;">' + dot + '</div>'
+          + '<div style="flex:1;min-width:0;font-family:sans-serif;">' + players + '</div>'
+          + '<div style="flex-shrink:0;text-align:right;">' + right + '</div>'
+          + '</div>';
       }
 
       function buildSection(matches, label, color) {
@@ -1010,78 +1066,19 @@ body {
         }
 
         var rows = '';
-
-        // Live
-        live.forEach(function(m) {
-          rows += matchRow(m, 'live');
-        });
-        // Completed
-        done.forEach(function(m) {
-          rows += matchRow(m, 'done');
-        });
-        // Upcoming
-        upcoming.forEach(function(m) {
-          rows += matchRow(m, 'upcoming');
-        });
+        live.forEach(function(m)    { rows += matchRow(m, 'live');     });
+        done.forEach(function(m)    { rows += matchRow(m, 'done');     });
+        upcoming.forEach(function(m){ rows += matchRow(m, 'upcoming'); });
 
         if (!rows) return '';
-        return '<div style="margin-bottom:18px;">'
-          + '<div style="font-size:0.65rem;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:' + color + ';font-family:sans-serif;padding:0 0 8px;">'
+        return '<div style="margin-bottom:4px;">'
+          + '<div style="font-size:0.65rem;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:' + color + ';font-family:sans-serif;padding:0 0 6px;">'
           + label + '</div>'
-          + '<table style="width:100%;border-collapse:collapse;font-family:sans-serif;font-size:0.82rem;">'
           + rows
-          + '</table></div>';
+          + '</div>';
       }
 
-      function matchRow(m, state) {
-        var p1 = fmtName(m.p1);
-        var p2 = fmtName(m.p2);
-        var p1f = flagOf(m.p1_country);
-        var p2f = flagOf(m.p2_country);
-        var p1s = (m.p1_rank && m.p1_rank <= 32) ? '<span style="color:#999;font-size:0.7rem;font-weight:600;">[' + m.p1_rank + ']</span> ' : '';
-        var p2s = (m.p2_rank && m.p2_rank <= 32) ? '<span style="color:#999;font-size:0.7rem;font-weight:600;">[' + m.p2_rank + ']</span> ' : '';
-
-        var statusCell, rowBg;
-
-        if (state === 'live') {
-          statusCell = '<span style="display:inline-flex;align-items:center;gap:5px;">'
-            + '<span style="width:7px;height:7px;border-radius:50%;background:#c0392b;display:inline-block;animation:blink 1.5s ease-in-out infinite;"></span>'
-            + '<span style="color:#c0392b;font-weight:700;font-size:0.72rem;">LIVE</span></span>';
-          rowBg = '#fff8f8';
-        } else if (state === 'done') {
-          statusCell = '<span style="color:#00512e;font-size:0.72rem;font-weight:600;">FINAL</span>';
-          rowBg = '';
-        } else {
-          statusCell = '<span style="color:#aaa;font-size:0.72rem;">SCHED</span>';
-          rowBg = '';
-        }
-
-        var scoreCell = '';
-        if (m.score) {
-          scoreCell = '<td style="white-space:nowrap;color:#555;font-size:0.75rem;padding:4px 0 4px 8px;">' + m.score + '</td>';
-        } else if (state === 'live') {
-          scoreCell = '<td style="color:#c0392b;font-size:0.75rem;padding:4px 0 4px 8px;">In progress</td>';
-        } else if (state === 'upcoming' && m.scheduled_time) {
-          scoreCell = '<td style="white-space:nowrap;color:#888;font-size:0.72rem;padding:4px 0 4px 8px;">' + m.scheduled_time + '</td>';
-        } else {
-          scoreCell = '<td style="color:#ccc;font-size:0.75rem;padding:4px 0 4px 8px;">—</td>';
-        }
-
-        // Winner styling
-        var p1Bold = (m.winner === m.p1) ? 'font-weight:700;color:#00512e;' : (m.winner ? 'color:#aaa;' : '');
-        var p2Bold = (m.winner === m.p2) ? 'font-weight:700;color:#00512e;' : (m.winner ? 'color:#aaa;' : '');
-
-        var matchup = '<span style="' + p1Bold + '">' + p1f + p1s + p1 + '</span>'
-          + '<span style="color:#bbb;font-size:0.72rem;margin:0 5px;">vs</span>'
-          + '<span style="' + p2Bold + '">' + p2f + p2s + p2 + '</span>';
-        return '<tr style="border-bottom:1px solid #f0ede6;background:' + rowBg + ';">'
-          + '<td style="width:36px;padding:4px 4px;white-space:nowrap;vertical-align:middle;">' + statusCell + '</td>'
-          + '<td style="padding:4px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0;width:99%;vertical-align:middle;">' + matchup + '</td>'
-          + scoreCell.replace('padding:6px', 'padding:4px')
-          + '</tr>';
-      }
-
-      var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">';
+      var html = '<div class="tm-grid">';
       html += '<div>' + buildSection(atpMs, "Men\'s Singles", '#00512e') + '</div>';
       html += '<div>' + buildSection(wtaMs, "Women\'s Singles", '#4b006e') + '</div>';
       html += '</div>';

@@ -430,10 +430,20 @@ body {
 
   <!-- TODAY'S MATCHES -->
   <div class="card" id="today-matches-card" style="margin-bottom:24px;">
-    <div class="card-header">
+    <div class="card-header" style="margin-bottom:0;">
       <div>
         <div class="card-title">🎾 Today's Matches</div>
-        <div class="card-sub" id="today-matches-sub">Men\'s &amp; Women\'s · Round in progress</div>
+        <div class="card-sub" id="today-matches-sub">US Open · Live &amp; Schedule</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="tm-btn-wta" onclick="switchMatchesTour('wta')"
+          style="padding:6px 16px;border-radius:100px;border:2px solid #4b006e;background:#4b006e;color:#fff;font-size:0.78rem;font-weight:700;cursor:pointer;font-family:sans-serif;letter-spacing:0.5px;">
+          Women's
+        </button>
+        <button id="tm-btn-atp" onclick="switchMatchesTour('atp')"
+          style="padding:6px 16px;border-radius:100px;border:2px solid #ddd8cc;background:#fff;color:#00512e;font-size:0.78rem;font-weight:700;cursor:pointer;font-family:sans-serif;letter-spacing:0.5px;">
+          Men's
+        </button>
       </div>
     </div>
     <div id="today-matches-body" style="padding:12px 16px 16px;">
@@ -965,125 +975,122 @@ body {
       return parts[0][0] + '. ' + parts.slice(1).join(' ');
     }
 
-    // Inject responsive grid style once
-    if (!document.getElementById('tm-style')) {
-      var s = document.createElement('style');
-      s.id = 'tm-style';
-      s.textContent = '.tm-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}'
-        + '@media(max-width:600px){.tm-grid{grid-template-columns:1fr}}';
-      document.head.appendChild(s);
+    var _tmAtp = [];
+    var _tmWta = [];
+    var _tmIsEspn = false;
+    var _tmTour = 'wta';  // default to women's on open
+
+    window.switchMatchesTour = function(tour) {
+      _tmTour = tour;
+      document.getElementById('tm-btn-atp').style.cssText =
+        'padding:6px 16px;border-radius:100px;border:2px solid ' + (tour==='atp'?'#00512e':'#ddd8cc') +
+        ';background:' + (tour==='atp'?'#00512e':'#fff') +
+        ';color:' + (tour==='atp'?'#fff':'#00512e') +
+        ';font-size:0.78rem;font-weight:700;cursor:pointer;font-family:sans-serif;letter-spacing:0.5px;';
+      document.getElementById('tm-btn-wta').style.cssText =
+        'padding:6px 16px;border-radius:100px;border:2px solid ' + (tour==='wta'?'#4b006e':'#ddd8cc') +
+        ';background:' + (tour==='wta'?'#4b006e':'#fff') +
+        ';color:' + (tour==='wta'?'#fff':'#4b006e') +
+        ';font-size:0.78rem;font-weight:700;cursor:pointer;font-family:sans-serif;letter-spacing:0.5px;';
+      _renderActiveTour();
+    };
+
+    // matchRow and buildSection live in outer scope so _renderActiveTour can call them
+    function matchRow(m, state, espnCtx) {
+      var p1 = fmtName(m.p1);
+      var p2 = fmtName(m.p2);
+      var p1f = flagOf(m.p1_country);
+      var p2f = flagOf(m.p2_country);
+      var seed1 = (m.p1_rank && m.p1_rank <= 32) ? ' <span style="color:#bbb;font-size:0.68rem;">[' + m.p1_rank + ']</span>' : '';
+      var seed2 = (m.p2_rank && m.p2_rank <= 32) ? ' <span style="color:#bbb;font-size:0.68rem;">[' + m.p2_rank + ']</span>' : '';
+      var rowBg = state === 'live' ? 'rgba(192,57,43,0.04)' : '';
+
+      var dot;
+      if (state === 'live') {
+        dot = '<span style="width:8px;height:8px;border-radius:50%;background:#c0392b;display:inline-block;flex-shrink:0;animation:blink 1.5s ease-in-out infinite;"></span>';
+      } else if (state === 'done') {
+        dot = '<span style="color:#00512e;font-size:0.82rem;line-height:1;flex-shrink:0;">&#10003;</span>';
+      } else {
+        dot = '<span style="width:8px;height:8px;border-radius:50%;border:1.5px solid #ccc;display:inline-block;flex-shrink:0;"></span>';
+      }
+
+      var right;
+      if (m.score) {
+        right = '<span style="color:' + (state==='live'?'#c0392b':'#555') + ';font-size:0.75rem;white-space:nowrap;">' + m.score + '</span>';
+      } else if (state === 'upcoming' && m.scheduled_time) {
+        right = '<span style="color:#888;font-size:0.72rem;white-space:nowrap;">' + m.scheduled_time + '</span>';
+      } else {
+        right = '<span style="color:#ccc;font-size:0.75rem;">—</span>';
+      }
+
+      var p1w = m.winner && (m.winner === m.p1 || (espnCtx && m.p1 && m.winner.indexOf(m.p1.split('. ')[1] || m.p1) !== -1));
+      var p2w = m.winner && (m.winner === m.p2 || (espnCtx && m.p2 && m.winner.indexOf(m.p2.split('. ')[1] || m.p2) !== -1));
+      var p1style = p1w ? 'font-weight:700;color:#1a1a1a;' : (m.winner ? 'color:#aaa;' : 'color:#1a1a1a;');
+      var p2style = p2w ? 'font-weight:700;color:#1a1a1a;' : (m.winner ? 'color:#aaa;' : 'color:#1a1a1a;');
+
+      var players = '<div style="' + p1style + 'font-size:0.82rem;line-height:1.4;">' + p1f + p1 + seed1 + '</div>'
+        + '<div style="' + p2style + 'font-size:0.82rem;line-height:1.4;">' + p2f + p2 + seed2 + '</div>';
+
+      return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f0ede6;background:' + rowBg + ';">'
+        + '<div style="display:flex;align-items:center;justify-content:center;width:14px;flex-shrink:0;">' + dot + '</div>'
+        + '<div style="flex:1;min-width:0;font-family:sans-serif;">' + players + '</div>'
+        + '<div style="flex-shrink:0;text-align:right;">' + right + '</div>'
+        + '</div>';
+    }
+
+    function buildSection(matches, espnCtx) {
+      if (!matches || !matches.length) return '<div style="text-align:center;color:#aaa;font-size:0.85rem;font-family:sans-serif;padding:20px;">No matches today.</div>';
+      var live, done, upcoming;
+      if (espnCtx) {
+        live     = matches.filter(function(m){ return m.status === 'live'; });
+        done     = matches.filter(function(m){ return m.status === 'final'; });
+        upcoming = matches.filter(function(m){ return m.status === 'upcoming'; });
+      } else {
+        live     = matches.filter(function(m){ return m.is_live; });
+        done     = matches.filter(function(m){ return m.winner && !m.is_live && m.completed_today; });
+        upcoming = matches.filter(function(m){ return !m.winner && !m.is_live; });
+      }
+      var rows = '';
+      live.forEach(function(m)    { rows += matchRow(m, 'live', espnCtx);     });
+      done.forEach(function(m)    { rows += matchRow(m, 'done', espnCtx);     });
+      upcoming.forEach(function(m){ rows += matchRow(m, 'upcoming', espnCtx); });
+      return rows || '<div style="text-align:center;color:#aaa;font-size:0.85rem;font-family:sans-serif;padding:20px;">No matches today.</div>';
+    }
+
+    function _renderActiveTour() {
+      var matches = _tmTour === 'atp' ? _tmAtp : _tmWta;
+      document.getElementById('today-matches-body').innerHTML =
+        '<div style="padding:0 0 4px;">' + buildSection(matches, _tmIsEspn) + '</div>';
     }
 
     function renderMatches(atpData, wtaData, isEspn) {
-      var body = document.getElementById('today-matches-body');
-      var sub  = document.getElementById('today-matches-sub');
+      var sub = document.getElementById('today-matches-sub');
 
       function getActiveRound(matches) {
         var minPending = 99;
         matches.forEach(function(m) {
-          if (!m.winner || m.is_live) {
-            if (m.round < minPending) minPending = m.round;
-          }
+          if (!m.winner || m.is_live) { if (m.round < minPending) minPending = m.round; }
         });
         return minPending === 99 ? 1 : minPending;
       }
 
-      var atpMs, wtaMs;
+      _tmIsEspn = isEspn;
       if (isEspn) {
-        atpMs = atpData;
-        wtaMs = wtaData;
-        sub.textContent = "Today · US Open";
+        _tmAtp = atpData;
+        _tmWta = wtaData;
+        sub.textContent = "US Open \xb7 Today";
       } else {
         var atpRound = getActiveRound(atpData);
         var wtaRound = getActiveRound(wtaData);
         sub.textContent = "Men's " + (ROUND_NAMES[atpRound]||'') + " \xb7 Women's " + (ROUND_NAMES[wtaRound]||'');
         function matchesForRound(matches, rnd) {
-          return matches.filter(function(m){ return m.round === rnd; })
-            .sort(function(a,b){ return a.pos - b.pos; });
+          return matches.filter(function(m){ return m.round === rnd; }).sort(function(a,b){ return a.pos - b.pos; });
         }
-        atpMs = matchesForRound(atpData, atpRound);
-        wtaMs = matchesForRound(wtaData, wtaRound);
+        _tmAtp = matchesForRound(atpData, atpRound);
+        _tmWta = matchesForRound(wtaData, wtaRound);
       }
 
-      // matchRow: two-line stacked layout (p1 above p2), dot indicator, score/time right
-      function matchRow(m, state) {
-        var p1 = fmtName(m.p1);
-        var p2 = fmtName(m.p2);
-        var p1f = flagOf(m.p1_country);
-        var p2f = flagOf(m.p2_country);
-        var seed1 = (m.p1_rank && m.p1_rank <= 32) ? ' <span style="color:#bbb;font-size:0.68rem;">[' + m.p1_rank + ']</span>' : '';
-        var seed2 = (m.p2_rank && m.p2_rank <= 32) ? ' <span style="color:#bbb;font-size:0.68rem;">[' + m.p2_rank + ']</span>' : '';
-
-        var rowBg = state === 'live' ? 'rgba(192,57,43,0.04)' : '';
-
-        // Status dot: red animated = live, green check = final, gray circle = upcoming
-        var dot;
-        if (state === 'live') {
-          dot = '<span style="width:8px;height:8px;border-radius:50%;background:#c0392b;display:inline-block;flex-shrink:0;animation:blink 1.5s ease-in-out infinite;"></span>';
-        } else if (state === 'done') {
-          dot = '<span style="color:#00512e;font-size:0.8rem;line-height:1;flex-shrink:0;">&#10003;</span>';
-        } else {
-          dot = '<span style="width:8px;height:8px;border-radius:50%;border:1.5px solid #ccc;display:inline-block;flex-shrink:0;"></span>';
-        }
-
-        // Right column: score or time
-        var right;
-        if (m.score) {
-          var scoreColor = state === 'live' ? '#c0392b' : '#555';
-          right = '<span style="color:' + scoreColor + ';font-size:0.75rem;white-space:nowrap;">' + m.score + '</span>';
-        } else if (state === 'upcoming' && m.scheduled_time) {
-          right = '<span style="color:#888;font-size:0.72rem;white-space:nowrap;">' + m.scheduled_time + '</span>';
-        } else {
-          right = '<span style="color:#ccc;font-size:0.75rem;">—</span>';
-        }
-
-        // Winner styling
-        var p1w = m.winner && (m.winner === m.p1 || (isEspn && m.p1 && m.winner.indexOf(m.p1.split('. ')[1] || m.p1) !== -1));
-        var p2w = m.winner && (m.winner === m.p2 || (isEspn && m.p2 && m.winner.indexOf(m.p2.split('. ')[1] || m.p2) !== -1));
-        var p1style = p1w ? 'font-weight:700;color:#1a1a1a;' : (m.winner ? 'color:#aaa;' : 'color:#1a1a1a;');
-        var p2style = p2w ? 'font-weight:700;color:#1a1a1a;' : (m.winner ? 'color:#aaa;' : 'color:#1a1a1a;');
-
-        var players = '<div style="' + p1style + 'font-size:0.82rem;line-height:1.4;">' + p1f + p1 + seed1 + '</div>'
-          + '<div style="' + p2style + 'font-size:0.82rem;line-height:1.4;">' + p2f + p2 + seed2 + '</div>';
-
-        return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f0ede6;background:' + rowBg + ';">'
-          + '<div style="display:flex;align-items:center;justify-content:center;width:14px;flex-shrink:0;">' + dot + '</div>'
-          + '<div style="flex:1;min-width:0;font-family:sans-serif;">' + players + '</div>'
-          + '<div style="flex-shrink:0;text-align:right;">' + right + '</div>'
-          + '</div>';
-      }
-
-      function buildSection(matches, label, color) {
-        var live, done, upcoming;
-        if (isEspn) {
-          live     = matches.filter(function(m){ return m.status === 'live'; });
-          done     = matches.filter(function(m){ return m.status === 'final'; });
-          upcoming = matches.filter(function(m){ return m.status === 'upcoming'; });
-        } else {
-          live     = matches.filter(function(m){ return m.is_live; });
-          done     = matches.filter(function(m){ return m.winner && !m.is_live && m.completed_today; });
-          upcoming = matches.filter(function(m){ return !m.winner && !m.is_live; });
-        }
-
-        var rows = '';
-        live.forEach(function(m)    { rows += matchRow(m, 'live');     });
-        done.forEach(function(m)    { rows += matchRow(m, 'done');     });
-        upcoming.forEach(function(m){ rows += matchRow(m, 'upcoming'); });
-
-        if (!rows) return '';
-        return '<div style="margin-bottom:4px;">'
-          + '<div style="font-size:0.65rem;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:' + color + ';font-family:sans-serif;padding:0 0 6px;">'
-          + label + '</div>'
-          + rows
-          + '</div>';
-      }
-
-      var html = '<div class="tm-grid">';
-      html += '<div>' + buildSection(atpMs, "Men\'s Singles", '#00512e') + '</div>';
-      html += '<div>' + buildSection(wtaMs, "Women\'s Singles", '#4b006e') + '</div>';
-      html += '</div>';
-
-      body.innerHTML = html;
+      _renderActiveTour();
     }
 
     function loadTodayMatches() {

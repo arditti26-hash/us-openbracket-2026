@@ -1138,7 +1138,7 @@ body {
     <div class="card-header" style="margin-bottom:0;">
       <div>
         <div class="card-title">📊 US Open Odds</div>
-        <div class="card-sub">Outright winner · DraftKings · updated September 2</div>
+        <div class="card-sub">Outright winner · DraftKings · updated September 3</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <button id="odds-btn-atp" onclick="switchOddsTour('atp')"
@@ -1981,33 +1981,35 @@ Outside-court matches for lower seeds typically begin at 11:00 AM ET.
 All times are already ET — no conversion needed.
 """
 
-# ── US Open odds (DraftKings · sourced 2026-08-24) ───────────────────────────
+# ── US Open odds (DraftKings · sourced 2026-09-03) ───────────────────────────
 # Update these manually from DraftKings when odds change
 
 _STATIC_ODDS = {
     'atp': [
-        ('+145',  'Carlos Alcaraz'),
-        ('+360',  'Alexander Zverev'),
-        ('+1000', 'Taylor Fritz'),
-        ('+1200', 'Ben Shelton'),
-        ('+1400', 'Rafael Jodar'),
-        ('+1700', 'Daniil Medvedev'),
-        ('+2500', 'Felix Auger-Aliassime'),
+        ('+130',  'Carlos Alcaraz'),
+        ('+350',  'Alexander Zverev'),
+        ('+900',  'Taylor Fritz'),
+        ('+900',  'Ben Shelton'),
+        ('+1800', 'Daniil Medvedev'),
+        ('+3000', 'Lorenzo Musetti'),
+        ('+3000', 'Jakub Mensik'),
         ('+3500', 'Frances Tiafoe'),
-        ('+3500', 'Jakub Mensik'),
-        ('+4000', 'Lorenzo Musetti'),
+        ('+4000', 'Tommy Paul'),
+        ('+4000', 'Flavio Cobolli'),
+        ('+5000', 'Alexander Bublik'),
+        ('+5000', 'Alex De Minaur'),
     ],
     'wta': [
-        ('+330',  'Aryna Sabalenka'),
+        ('+285',  'Aryna Sabalenka'),
         ('+425',  'Coco Gauff'),
         ('+500',  'Iga Swiatek'),
         ('+900',  'Jessica Pegula'),
-        ('+1400', 'Naomi Osaka'),
+        ('+1500', 'Naomi Osaka'),
         ('+1700', 'Elena Rybakina'),
-        ('+1800', 'Mirra Andreeva'),
-        ('+1800', 'Marta Kostyuk'),
-        ('+1800', 'Amanda Anisimova'),
-        ('+2200', 'Alexandra Eala'),
+        ('+2000', 'Mirra Andreeva'),
+        ('+2000', 'Karolina Muchova'),
+        ('+2000', 'Amanda Anisimova'),
+        ('+2200', 'Marta Kostyuk'),
     ],
 }
 

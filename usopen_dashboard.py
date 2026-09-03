@@ -2660,11 +2660,56 @@ class Handler(BaseHTTPRequestHandler):
                     for part in self.path.split('?', 1)[1].split('&'):
                         if part.startswith('tour='):
                             tour = part[5:].lower()
-                matches = _fetch_espn_today_matches(tour)
-                if not matches:
-                    self.send_body(json.dumps({'matches': [], 'source': 'none'}).encode(), 'application/json')
-                else:
-                    self.send_body(json.dumps({'matches': matches, 'source': 'espn'}).encode(), 'application/json')
+
+                # ESPN: live + upcoming + recently completed
+                espn_matches = _fetch_espn_today_matches(tour)
+
+                # Bracket: completed-today matches ESPN may have dropped from its scoreboard
+                bracket_completed = []
+                try:
+                    _, results, all_matches = _get_tournament_data(tour, MEMBERS)
+                    round_names = {1:'R1',2:'R2',3:'R3',4:'R4',5:'QF',6:'SF',7:'Final'}
+                    score_lookup = {(m['round'], m['pos']): m.get('score','')
+                                    for m in all_matches if m.get('winner') and m.get('score')}
+                    # Ensure startup snapshot exists for this tour
+                    if tour not in _startup_snapshot_done:
+                        for m in all_matches:
+                            if m.get('winner') and not m.get('is_live'):
+                                _pre_existing_completed.add((tour, m.get('round'), m.get('pos')))
+                        _startup_snapshot_done.add(tour)
+                    for m in all_matches:
+                        key = (tour, m.get('round'), m.get('pos'))
+                        if m.get('winner') and not m.get('is_live') and key not in _pre_existing_completed:
+                            bracket_completed.append({
+                                'p1': m.get('p1',''),
+                                'p2': m.get('p2',''),
+                                'p1_country': m.get('p1_country',''),
+                                'p2_country': m.get('p2_country',''),
+                                'winner': m.get('winner',''),
+                                'score': score_lookup.get((m['round'], m['pos']),''),
+                                'is_live': False,
+                                'scheduled_time': '',
+                                'status': 'final',
+                                'round': round_names.get(m.get('round',0), ''),
+                            })
+                except Exception:
+                    pass
+
+                # Merge: ESPN is authoritative; add bracket completed not already in ESPN
+                espn_pairs = set()
+                for m in espn_matches:
+                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
+                    espn_pairs.add(pair)
+
+                merged = list(espn_matches)
+                for m in bracket_completed:
+                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
+                    if pair not in espn_pairs:
+                        merged.append(m)
+                        espn_pairs.add(pair)
+
+                source = 'espn' if espn_matches else ('bracket' if merged else 'none')
+                self.send_body(json.dumps({'matches': merged, 'source': source}).encode(), 'application/json')
             except Exception as e:
                 self.send_body(json.dumps({'matches': [], 'source': 'error', 'error': str(e)}).encode(), 'application/json')
         elif self.path.startswith('/api/bracket'):

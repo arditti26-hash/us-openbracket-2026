@@ -861,8 +861,9 @@ body {
       }
 
       var maxRound = 7;
-      var TOTAL_PH = 3200; // matches live bracket height
-      var PICK_H = 26;
+      var TOTAL_PH = 3200;
+      var PICK_H   = 22;   // single card height
+      var PAIR_GAP = 3;    // gap between the two matchup cards
 
       // Round labels
       labelsEl.innerHTML = '';
@@ -878,6 +879,45 @@ body {
       var wrap = document.createElement('div');
       wrap.style.cssText = 'display:flex;height:' + TOTAL_PH + 'px;position:relative;';
 
+      // Helper: create a single pick card
+      function makeCard(playerName, status, isLoser) {
+        var bg, color, fw, borderColor, deco;
+        if (isLoser) {
+          // Other participant in a matchup — dimmed
+          bg = '#f5f4f0'; color = '#bbb'; fw = '400'; borderColor = '#e8e4d8'; deco = 'none';
+        } else if (!playerName) {
+          bg = '#f5f4f0'; color = '#bbb'; fw = '400'; borderColor = '#e8e4d8'; deco = 'none';
+        } else if (status === 'correct') {
+          bg = '#d4f0dc'; color = '#00512e'; fw = '700'; borderColor = '#9ecfad'; deco = 'none';
+        } else if (status === 'wrong' || status === 'eliminated') {
+          bg = '#ffe0e0'; color = '#c0392b'; fw = '400'; borderColor = '#e8a0a0'; deco = 'line-through';
+        } else {
+          bg = '#fff'; color = '#1a1a1a'; fw = '400'; borderColor = '#e0dbd0'; deco = 'none';
+        }
+        var d = document.createElement('div');
+        d.style.cssText = [
+          'left:4px','right:4px',
+          'height:' + PICK_H + 'px',
+          'line-height:' + PICK_H + 'px',
+          'padding:0 6px',
+          'font-size:10.5px',
+          'font-family:sans-serif',
+          'font-weight:' + fw,
+          'color:' + color,
+          'background:' + bg,
+          'border:1px solid ' + borderColor,
+          'border-radius:4px',
+          'white-space:nowrap',
+          'overflow:hidden',
+          'text-overflow:ellipsis',
+          'box-sizing:border-box',
+          'text-decoration:' + deco,
+          'position:absolute',
+        ].join(';');
+        d.textContent = playerName ? lastName(playerName) : '—';
+        return d;
+      }
+
       for (var rnd = 1; rnd <= maxRound; rnd++) {
         var matchCount = Math.round(64 / Math.pow(2, rnd - 1));
         var slotH = TOTAL_PH / matchCount;
@@ -886,49 +926,56 @@ body {
         col.style.cssText = 'width:' + COL_W + 'px;flex-shrink:0;border-right:1px solid #e8e4d8;position:relative;height:' + TOTAL_PH + 'px;';
 
         for (var pos = 1; pos <= matchCount; pos++) {
-          var key = rnd + ':' + pos;
-          var pick = picks[key];
-          var status = pick ? pick.status : 'none';
-          var playerName = pick ? pick.player : null;
-
           var centerY = (pos - 0.5) * slotH;
+          var winKey = rnd + ':' + pos;
+          var winPick = picks[winKey];
 
-          var bg, color, fw, borderColor;
-          if (!pick) {
-            bg = '#f5f4f0'; color = '#bbb'; fw = '400'; borderColor = '#e8e4d8';
-          } else if (status === 'correct') {
-            bg = '#d4f0dc'; color = '#00512e'; fw = '700'; borderColor = '#9ecfad';
-          } else if (status === 'wrong' || status === 'eliminated') {
-            bg = '#ffe0e0'; color = '#c0392b'; fw = '400'; borderColor = '#e8a0a0';
+          if (rnd === 1) {
+            // R1: single card — just show the predicted winner
+            var c = makeCard(winPick ? winPick.player : null, winPick ? winPick.status : 'none', false);
+            c.style.top = Math.round(centerY - PICK_H / 2) + 'px';
+            col.appendChild(c);
           } else {
-            bg = '#fff'; color = '#1a1a1a'; fw = '400'; borderColor = '#e0dbd0';
+            // R2+: show both participants (from previous round picks) + highlight winner
+            var p1Key = (rnd - 1) + ':' + (2 * pos - 1);
+            var p2Key = (rnd - 1) + ':' + (2 * pos);
+            var p1Pick = picks[p1Key];
+            var p2Pick = picks[p2Key];
+
+            var p1Name = p1Pick ? p1Pick.player : null;
+            var p2Name = p2Pick ? p2Pick.player : null;
+            var winName = winPick ? winPick.player : null;
+
+            // Determine which participant is the predicted winner
+            var p1IsWinner = winName && p1Name && (winName === p1Name);
+            var p2IsWinner = winName && p2Name && (winName === p2Name);
+
+            // Top card = p1, bottom card = p2
+            var pairH = PICK_H * 2 + PAIR_GAP;
+            var topY   = Math.round(centerY - pairH / 2);
+            var botY   = topY + PICK_H + PAIR_GAP;
+
+            var c1 = makeCard(p1Name,
+              p1IsWinner ? (winPick ? winPick.status : 'future') : (p1Pick ? p1Pick.status : 'none'),
+              !p1IsWinner && winName !== null  // dim if there's a winner pick and it's not this one
+            );
+            c1.style.top = topY + 'px';
+
+            var c2 = makeCard(p2Name,
+              p2IsWinner ? (winPick ? winPick.status : 'future') : (p2Pick ? p2Pick.status : 'none'),
+              !p2IsWinner && winName !== null
+            );
+            c2.style.top = botY + 'px';
+
+            col.appendChild(c1);
+            col.appendChild(c2);
+
+            // Bracket connector line between the two cards
+            var line = document.createElement('div');
+            var lineTop = topY + PICK_H;
+            line.style.cssText = 'position:absolute;left:4px;right:4px;top:' + lineTop + 'px;height:' + PAIR_GAP + 'px;border-left:1px solid #d0ccc0;border-right:1px solid #d0ccc0;';
+            col.appendChild(line);
           }
-
-          var card = document.createElement('div');
-          card.style.cssText = [
-            'position:absolute',
-            'left:4px',
-            'right:4px',
-            'top:' + Math.round(centerY - PICK_H / 2) + 'px',
-            'height:' + PICK_H + 'px',
-            'line-height:' + PICK_H + 'px',
-            'padding:0 6px',
-            'font-size:10.5px',
-            'font-family:sans-serif',
-            'font-weight:' + fw,
-            'color:' + color,
-            'background:' + bg,
-            'border:1px solid ' + borderColor,
-            'border-radius:4px',
-            'white-space:nowrap',
-            'overflow:hidden',
-            'text-overflow:ellipsis',
-            'box-sizing:border-box',
-            'text-decoration:' + (status === 'wrong' || status === 'eliminated' ? 'line-through' : 'none'),
-          ].join(';');
-
-          card.textContent = playerName ? lastName(playerName) : '—';
-          col.appendChild(card);
         }
 
         wrap.appendChild(col);

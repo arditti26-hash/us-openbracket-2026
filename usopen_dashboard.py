@@ -432,7 +432,7 @@ body {
   <div class="card" id="today-matches-card" style="margin-bottom:24px;">
     <div class="card-header">
       <div>
-        <div class="card-title">🎾 Today\'s Matches</div>
+        <div class="card-title">🎾 Today's Matches</div>
         <div class="card-sub" id="today-matches-sub">Men\'s &amp; Women\'s · Round in progress</div>
       </div>
     </div>
@@ -951,15 +951,14 @@ body {
       var sub  = document.getElementById('today-matches-sub');
 
       function getActiveRound(matches) {
-        // Find the highest round that has any live or pending match
-        var maxActive = 0;
+        // Find the LOWEST round that still has any live or pending match — that's today's action
+        var minPending = 99;
         matches.forEach(function(m) {
           if (!m.winner || m.is_live) {
-            if (m.round > maxActive) maxActive = m.round;
+            if (m.round < minPending) minPending = m.round;
           }
         });
-        // Also include the round just below if it has live matches
-        return maxActive || 1;
+        return minPending === 99 ? 1 : minPending;
       }
 
       var atpRound = getActiveRound(atpData);
@@ -1971,19 +1970,18 @@ def _fetch_ai_summary():
         )
 
     prompt = (
-        f"You are a tennis writer covering the US Open {today}. Current time: {now_et.strftime('%I:%M %p ET')}.\n"
-        f"Write an ultra-concise daily update in this exact format — no intro, no extra text, no blank lines between sentences:\n\n"
-        f"WOMEN'S: [sentence 1: recap today's most notable Women's result with score] [sentence 2: one more Women's result or storyline] [sentence 3: most compelling Women's match {lookahead_label} — name players, stakes, ET time if confirmed] [sentence 4: one more Women's match {lookahead_label} to watch with ET time if confirmed]\n"
-        f"MEN'S: [sentence 1: recap today's most notable Men's result with score] [sentence 2: one more Men's result or storyline] [sentence 3: most compelling Men's match {lookahead_label} — name players, stakes, ET time if confirmed] [sentence 4: one more Men's match {lookahead_label} to watch with ET time if confirmed]\n\n"
-        f"Rules:\n"
-        f"- Every sentence must be SHORT (under 20 words).\n"
-        f"- Tone: engaging and specific, but measured. Avoid hyperbolic words like demolished, crushed, steamrolled, bagel, brutal, dominant, stunning.\n"
-        f"- Only use facts from the data below. Never fabricate.\n"
-        f"- CRITICAL: For the recap sentences, ONLY reference matches listed under \"Today's completed matches\" in the data. Do NOT recap matches from previous days.\n"
-        f"- {day_context}\n"
-        f"- If you include a match time, show ET only. Format: '12:00 PM ET'.\n"
-        f"- CRITICAL: Always produce the full update — never refuse or ask for more information. If day/time is uncertain, say 'in their upcoming match' instead of guessing.\n\n"
-        f"US Open schedule (ET times):\n{_WIMBLEDON_SCHEDULE}\n\n"
+        f"You are a sharp tennis writer covering the US Open. Today is {today_date}, {now_et.strftime('%I:%M %p ET')}.\n\n"
+        f"Write a brief daily update in EXACTLY this format — no intro, no meta-commentary, no explanation of what data you have:\n\n"
+        f"WOMEN'S\n"
+        f"[2 sentences max: recap completed Women's matches with scores if any happened today, then 2 sentences on upcoming Women's matches to watch]\n\n"
+        f"MEN'S\n"
+        f"[2 sentences max: recap completed Men's matches with scores if any happened today, then 2 sentences on upcoming Men's matches to watch]\n\n"
+        f"Hard rules:\n"
+        f"- Output ONLY the update. No notes, no caveats, no \"I don't have...\", no asterisks, no Markdown bold.\n"
+        f"- If no matches completed today, skip the recap sentences entirely and go straight to upcoming.\n"
+        f"- Every sentence under 20 words. Specific players and stakes. No hype words.\n"
+        f"- Only use facts from the data. Never fabricate scores or results.\n"
+        f"- Times in ET only if confirmed in the news context. Otherwise say 'later today' or 'in their upcoming match'.\n\n"
         f"Data:\n{results_text}\n\n"
         f"News context:\n{news_text[:2500]}"
     )

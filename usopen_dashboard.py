@@ -2661,25 +2661,31 @@ class Handler(BaseHTTPRequestHandler):
                         if part.startswith('tour='):
                             tour = part[5:].lower()
 
-                # ESPN: live + upcoming + recently completed
+                # ESPN: live scores + upcoming schedule (scoreboard is ephemeral — drops completed)
                 espn_matches = _fetch_espn_today_matches(tour)
 
-                # Bracket: completed-today matches ESPN may have dropped from its scoreboard
+                # Bracket: authoritative source for completed matches.
+                # "Today" = the current active rounds. We determine the current round as
+                # the highest round that has ANY completed match; show all completed matches
+                # in that round AND the round immediately before it (covers day-straddle).
                 bracket_completed = []
                 try:
                     _, results, all_matches = _get_tournament_data(tour, MEMBERS)
                     round_names = {1:'R1',2:'R2',3:'R3',4:'R4',5:'QF',6:'SF',7:'Final'}
                     score_lookup = {(m['round'], m['pos']): m.get('score','')
                                     for m in all_matches if m.get('winner') and m.get('score')}
-                    # Ensure startup snapshot exists for this tour
-                    if tour not in _startup_snapshot_done:
-                        for m in all_matches:
-                            if m.get('winner') and not m.get('is_live'):
-                                _pre_existing_completed.add((tour, m.get('round'), m.get('pos')))
-                        _startup_snapshot_done.add(tour)
+
+                    # Highest round with a completed match = current active round
+                    completed_rounds = set()
                     for m in all_matches:
-                        key = (tour, m.get('round'), m.get('pos'))
-                        if m.get('winner') and not m.get('is_live') and key not in _pre_existing_completed:
+                        if m.get('winner') and not m.get('is_live'):
+                            completed_rounds.add(m.get('round', 0))
+                    current_round = max(completed_rounds) if completed_rounds else 0
+                    # Show completed matches from current round and the one before
+                    show_rounds = {current_round, current_round - 1} if current_round > 1 else {current_round}
+
+                    for m in all_matches:
+                        if m.get('winner') and not m.get('is_live') and m.get('round') in show_rounds:
                             bracket_completed.append({
                                 'p1': m.get('p1',''),
                                 'p2': m.get('p2',''),
@@ -2695,18 +2701,24 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
 
-                # Merge: ESPN is authoritative; add bracket completed not already in ESPN
-                espn_pairs = set()
+                # Merge: bracket provides all completed; ESPN provides live + upcoming.
+                # ESPN completed entries take priority (have live scores); bracket fills the rest.
+                seen_pairs = set()
+                merged = []
+
+                # First pass: ESPN matches (live, upcoming, and any ESPN-confirmed finals)
                 for m in espn_matches:
                     pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
-                    espn_pairs.add(pair)
+                    if pair not in seen_pairs:
+                        merged.append(m)
+                        seen_pairs.add(pair)
 
-                merged = list(espn_matches)
+                # Second pass: bracket completed not already covered by ESPN
                 for m in bracket_completed:
                     pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
-                    if pair not in espn_pairs:
+                    if pair not in seen_pairs:
                         merged.append(m)
-                        espn_pairs.add(pair)
+                        seen_pairs.add(pair)
 
                 source = 'espn' if espn_matches else ('bracket' if merged else 'none')
                 self.send_body(json.dumps({'matches': merged, 'source': source}).encode(), 'application/json')

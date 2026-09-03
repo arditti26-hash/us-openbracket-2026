@@ -939,11 +939,30 @@ body {
     var membersParam = (window._currentMembers && window._currentMembers.length)
       ? '?members=' + encodeURIComponent(window._currentMembers.join(',')) : '';
 
+    // Map 3-letter IOC country codes → 2-letter ISO (for flag emoji)
+    var CC = {
+      ARG:'AR',ARM:'AM',AUS:'AU',AUT:'AT',AZE:'AZ',BEL:'BE',BIH:'BA',BLR:'BY',BOL:'BO',BRA:'BR',
+      BUL:'BG',CAN:'CA',CHI:'CL',CHN:'CN',COL:'CO',CRO:'HR',CZE:'CZ',DEN:'DK',ECU:'EC',EGY:'EG',
+      ESP:'ES',EST:'EE',FIN:'FI',FRA:'FR',GBR:'GB',GEO:'GE',GER:'DE',GRE:'GR',HKG:'HK',HUN:'HU',
+      INA:'ID',IND:'IN',IRI:'IR',ISR:'IL',ITA:'IT',JPN:'JP',KAZ:'KZ',KOR:'KR',LAT:'LV',LTU:'LT',
+      MAS:'MY',MDA:'MD',MEX:'MX',MKD:'MK',MAR:'MA',NED:'NL',NOR:'NO',NZL:'NZ',PAR:'PY',PER:'PE',
+      PHI:'PH',POL:'PL',POR:'PT',QAT:'QA',ROU:'RO',RSA:'ZA',RUS:'RU',SGP:'SG',SLO:'SI',
+      SRB:'RS',SUI:'CH',SVK:'SK',SWE:'SE',THA:'TH',TPE:'TW',TUN:'TN',UAE:'AE',UKR:'UA',
+      URU:'UY',USA:'US',UZB:'UZ',VEN:'VE',VIE:'VN'
+    };
     function flagOf(code) {
       if (!code) return '';
-      return code.toUpperCase().replace(/./g, function(c) {
+      var iso = CC[code.toUpperCase()] || (code.length === 2 ? code.toUpperCase() : null);
+      if (!iso) return '';
+      return iso.toUpperCase().replace(/./g, function(c) {
         return String.fromCodePoint(c.charCodeAt(0) + 127397);
       }) + ' ';
+    }
+    function fmtName(full) {
+      if (!full) return 'TBD';
+      var parts = full.trim().split(/\s+/);
+      if (parts.length === 1) return full;
+      return parts[0][0] + '. ' + parts.slice(1).join(' ');
     }
 
     function renderMatches(atpData, wtaData) {
@@ -1003,12 +1022,12 @@ body {
       }
 
       function matchRow(m, state) {
-        var p1 = m.p1 || 'TBD';
-        var p2 = m.p2 || 'TBD';
+        var p1 = fmtName(m.p1);
+        var p2 = fmtName(m.p2);
         var p1f = flagOf(m.p1_country);
         var p2f = flagOf(m.p2_country);
-        var p1s = (m.p1_rank && m.p1_rank <= 32) ? '<span style="color:#aaa;font-size:0.72rem;">[' + m.p1_rank + ']</span> ' : '';
-        var p2s = (m.p2_rank && m.p2_rank <= 32) ? '<span style="color:#aaa;font-size:0.72rem;">[' + m.p2_rank + ']</span> ' : '';
+        var p1s = (m.p1_rank && m.p1_rank <= 32) ? '<span style="color:#999;font-size:0.7rem;font-weight:600;">[' + m.p1_rank + ']</span> ' : '';
+        var p2s = (m.p2_rank && m.p2_rank <= 32) ? '<span style="color:#999;font-size:0.7rem;font-weight:600;">[' + m.p2_rank + ']</span> ' : '';
 
         var statusCell, rowBg;
 

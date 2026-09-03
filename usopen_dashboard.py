@@ -965,7 +965,7 @@ body {
       return parts[0][0] + '. ' + parts.slice(1).join(' ');
     }
 
-    function renderMatches(atpData, wtaData) {
+    function renderMatches(atpData, wtaData, isEspn) {
       var body = document.getElementById('today-matches-body');
       var sub  = document.getElementById('today-matches-sub');
 
@@ -980,22 +980,34 @@ body {
         return minPending === 99 ? 1 : minPending;
       }
 
-      var atpRound = getActiveRound(atpData);
-      var wtaRound = getActiveRound(wtaData);
-      sub.textContent = 'Men\'s ' + (ROUND_NAMES[atpRound]||'') + ' · Women\'s ' + (ROUND_NAMES[wtaRound]||'');
-
-      function matchesForRound(matches, rnd) {
-        return matches.filter(function(m){ return m.round === rnd; })
-          .sort(function(a,b){ return a.pos - b.pos; });
+      var atpMs, wtaMs;
+      if (isEspn) {
+        atpMs = atpData;
+        wtaMs = wtaData;
+        sub.textContent = "Live · Completed · Upcoming";
+      } else {
+        var atpRound = getActiveRound(atpData);
+        var wtaRound = getActiveRound(wtaData);
+        sub.textContent = 'Men\'s ' + (ROUND_NAMES[atpRound]||'') + ' · Women\'s ' + (ROUND_NAMES[wtaRound]||'');
+        function matchesForRound(matches, rnd) {
+          return matches.filter(function(m){ return m.round === rnd; })
+            .sort(function(a,b){ return a.pos - b.pos; });
+        }
+        atpMs = matchesForRound(atpData, atpRound);
+        wtaMs = matchesForRound(wtaData, wtaRound);
       }
 
-      var atpMs = matchesForRound(atpData, atpRound);
-      var wtaMs = matchesForRound(wtaData, wtaRound);
-
       function buildSection(matches, label, color) {
-        var live    = matches.filter(function(m){ return m.is_live; });
-        var done    = matches.filter(function(m){ return m.winner && !m.is_live && m.completed_today; });
-        var upcoming= matches.filter(function(m){ return !m.winner && !m.is_live; });
+        var live, done, upcoming;
+        if (isEspn) {
+          live     = matches.filter(function(m){ return m.status === 'live'; });
+          done     = matches.filter(function(m){ return m.status === 'final'; });
+          upcoming = matches.filter(function(m){ return m.status === 'upcoming'; });
+        } else {
+          live     = matches.filter(function(m){ return m.is_live; });
+          done     = matches.filter(function(m){ return m.winner && !m.is_live && m.completed_today; });
+          upcoming = matches.filter(function(m){ return !m.winner && !m.is_live; });
+        }
 
         var rows = '';
 
@@ -1046,11 +1058,13 @@ body {
 
         var scoreCell = '';
         if (m.score) {
-          scoreCell = '<td style="white-space:nowrap;color:#555;font-size:0.75rem;padding:6px 0 6px 8px;">' + m.score + '</td>';
+          scoreCell = '<td style="white-space:nowrap;color:#555;font-size:0.75rem;padding:4px 0 4px 8px;">' + m.score + '</td>';
         } else if (state === 'live') {
-          scoreCell = '<td style="color:#c0392b;font-size:0.75rem;padding:6px 0 6px 8px;">In progress</td>';
+          scoreCell = '<td style="color:#c0392b;font-size:0.75rem;padding:4px 0 4px 8px;">In progress</td>';
+        } else if (state === 'upcoming' && m.scheduled_time) {
+          scoreCell = '<td style="white-space:nowrap;color:#888;font-size:0.72rem;padding:4px 0 4px 8px;">' + m.scheduled_time + '</td>';
         } else {
-          scoreCell = '<td style="color:#ccc;font-size:0.75rem;padding:6px 0 6px 8px;">—</td>';
+          scoreCell = '<td style="color:#ccc;font-size:0.75rem;padding:4px 0 4px 8px;">—</td>';
         }
 
         // Winner styling
@@ -1078,11 +1092,31 @@ body {
     function loadTodayMatches() {
       var mp = (window._currentMembers && window._currentMembers.length)
         ? '?members=' + encodeURIComponent(window._currentMembers.join(',')) : '';
+
+      // Try ESPN first (has today-only data + match times), fall back to bracket data
+      Promise.all([
+        fetch('/api/today_matches?tour=atp').then(function(r){ return r.json(); }),
+        fetch('/api/today_matches?tour=wta').then(function(r){ return r.json(); })
+      ]).then(function(results) {
+        var atpMs = results[0].matches || [];
+        var wtaMs = results[1].matches || [];
+        // If ESPN returned data, use it; otherwise fall back to bracket
+        if (atpMs.length > 0 || wtaMs.length > 0) {
+          renderMatches(atpMs, wtaMs, true);
+        } else {
+          return loadTodayMatchesFallback(mp);
+        }
+      }).catch(function() {
+        loadTodayMatchesFallback(mp);
+      });
+    }
+
+    function loadTodayMatchesFallback(mp) {
       Promise.all([
         fetch('/api/bracket?tour=atp' + (mp ? '&' + mp.slice(1) : '')).then(function(r){ return r.json(); }),
         fetch('/api/bracket?tour=wta' + (mp ? '&' + mp.slice(1) : '')).then(function(r){ return r.json(); })
       ]).then(function(results) {
-        renderMatches(results[0].matches || [], results[1].matches || []);
+        renderMatches(results[0].matches || [], results[1].matches || [], false);
       }).catch(function() {
         document.getElementById('today-matches-body').innerHTML =
           '<div style="text-align:center;color:#aaa;font-size:0.85rem;padding:20px;font-family:sans-serif;">Could not load match data.</div>';
@@ -1770,6 +1804,126 @@ def _fetch_espn_live(tour):
     return result
 
 
+_espn_today_cache    = {}   # tour -> list[match_dict]
+_espn_today_cache_ts = {}
+
+def _fetch_espn_today_matches(tour):
+    """
+    Fetch today's US Open singles matches from ESPN API.
+    Returns list of dicts: {p1, p2, p1_country, p2_country, winner, score, is_live,
+                            scheduled_time, status}
+    status: 'live' | 'final' | 'upcoming'
+    Falls back to [] on any error (caller uses bracket data instead).
+    """
+    now = time.time()
+    if tour in _espn_today_cache and now - _espn_today_cache_ts.get(tour, 0) < 45:
+        return _espn_today_cache[tour]
+
+    slug = 'atp' if tour == 'atp' else 'wta'
+    today_str = datetime.now().strftime('%Y%m%d')
+    endpoints = [
+        f'https://site.api.espn.com/apis/site/v2/sports/tennis/{slug}/scoreboard?dates={today_str}',
+        f'https://site.api.espn.com/apis/site/v2/sports/tennis/scoreboard?dates={today_str}',
+    ]
+
+    matches = []
+    for url in endpoints:
+        try:
+            req = urllib.request.Request(url, headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'Accept': 'application/json',
+            })
+            with urllib.request.urlopen(req, timeout=8) as r:
+                data = json.loads(r.read().decode())
+            for event in data.get('events', []):
+                # Only singles (no doubles)
+                name_lower = (event.get('name') or '').lower()
+                if 'double' in name_lower:
+                    continue
+                for comp in event.get('competitions', []):
+                    stype     = (comp.get('status') or {}).get('type') or {}
+                    state     = stype.get('name', '')
+                    completed = stype.get('completed', False)
+                    detail    = stype.get('shortDetail') or stype.get('detail') or ''
+
+                    competitors = comp.get('competitors', [])
+                    if len(competitors) < 2:
+                        continue
+
+                    def _parse_competitor(c):
+                        ath = c.get('athlete') or {}
+                        name = ath.get('fullName') or ath.get('displayName') or ''
+                        # 3-letter country code from multiple possible fields
+                        ctry = ''
+                        flag = ath.get('flag') or {}
+                        if not ctry:
+                            ctry = (ath.get('countryAbbreviation') or
+                                    ath.get('shortCountryAbbreviation') or '')
+                        if not ctry:
+                            for f in [ath.get('country') or {}, flag]:
+                                if isinstance(f, dict):
+                                    ctry = (f.get('abbreviation') or f.get('code') or '')
+                                    if ctry:
+                                        break
+                        winner_flag = c.get('winner', False)
+                        return name, ctry.upper()[:3], winner_flag
+
+                    p1_name, p1_ctry, p1_won = _parse_competitor(competitors[0])
+                    p2_name, p2_ctry, p2_won = _parse_competitor(competitors[1])
+
+                    # Score string from linescores
+                    score_str = None
+                    comp_ls = comp.get('linescores') or []
+                    if comp_ls:
+                        parts = [s.get('displayValue', '') for s in comp_ls if s.get('displayValue')]
+                        if parts:
+                            score_str = ' '.join(parts)
+                    if not score_str and len(competitors) == 2:
+                        ls0 = [l.get('value') for l in (competitors[0].get('linescores') or []) if l.get('value') is not None]
+                        ls1 = [l.get('value') for l in (competitors[1].get('linescores') or []) if l.get('value') is not None]
+                        if ls0 and ls1 and len(ls0) == len(ls1):
+                            score_str = ' '.join(f'{int(a)}-{int(b)}' for a, b in zip(ls0, ls1))
+
+                    if state == 'STATUS_IN_PROGRESS' and not completed:
+                        status = 'live'
+                    elif completed or state == 'STATUS_FINAL':
+                        status = 'final'
+                    else:
+                        status = 'upcoming'
+
+                    winner_name = ''
+                    if status == 'final':
+                        if p1_won:
+                            winner_name = p1_name
+                        elif p2_won:
+                            winner_name = p2_name
+
+                    # scheduled_time: shown only for upcoming
+                    scheduled_time = ''
+                    if status == 'upcoming' and detail:
+                        scheduled_time = detail  # e.g. "7:00 PM ET"
+
+                    matches.append({
+                        'p1': p1_name,
+                        'p2': p2_name,
+                        'p1_country': p1_ctry,
+                        'p2_country': p2_ctry,
+                        'winner': winner_name,
+                        'score': score_str or '',
+                        'is_live': status == 'live',
+                        'scheduled_time': scheduled_time,
+                        'status': status,
+                    })
+            if matches:
+                break  # got data from first working endpoint
+        except Exception:
+            continue
+
+    _espn_today_cache[tour]    = matches
+    _espn_today_cache_ts[tour] = now
+    return matches
+
+
 # ── US Open daily schedule (all times already ET) ───────────────────────────
 _WIMBLEDON_SCHEDULE = """
 US Open 2026 daily schedule (all times Eastern / ET — the tournament is in New York):
@@ -2182,7 +2336,8 @@ def _scrape_group_scores(members=None):
 # Tournament data cache: shared draw+results across all users per request
 _tourney_cache    = {}
 _tourney_cache_ts = {}
-_match_first_completed = {}   # (tour, round, pos) -> float timestamp
+_pre_existing_completed = set()   # matches already done at server start — not "today"
+_startup_snapshot_done  = set()   # which tours have been snapshotted
 
 
 def _get_tournament_data(tour, members):
@@ -2351,6 +2506,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_body(json.dumps({'picks': named}).encode(), 'application/json')
             except Exception as e:
                 self.send_body(json.dumps({'picks': {}}).encode(), 'application/json')
+        elif self.path.startswith('/api/today_matches'):
+            try:
+                tour = 'atp'
+                if '?' in self.path:
+                    for part in self.path.split('?', 1)[1].split('&'):
+                        if part.startswith('tour='):
+                            tour = part[5:].lower()
+                matches = _fetch_espn_today_matches(tour)
+                if not matches:
+                    self.send_body(json.dumps({'matches': [], 'source': 'none'}).encode(), 'application/json')
+                else:
+                    self.send_body(json.dumps({'matches': matches, 'source': 'espn'}).encode(), 'application/json')
+            except Exception as e:
+                self.send_body(json.dumps({'matches': [], 'source': 'error', 'error': str(e)}).encode(), 'application/json')
         elif self.path.startswith('/api/bracket'):
             try:
                 tour = 'atp'
@@ -2366,32 +2535,18 @@ class Handler(BaseHTTPRequestHandler):
                 members = members or MEMBERS
                 _, _, all_matches = _get_tournament_data(tour, members)
                 espn = _fetch_espn_live(tour)
-                # Track when each match first became completed; tag completed_today
-                now_ts = time.time()
-                try:
-                    from zoneinfo import ZoneInfo as _ZI
-                    _et = _ZI('America/New_York')
-                except Exception:
-                    _et = None
-                if _et:
-                    from datetime import datetime as _dt
-                    _today_str = _dt.now(tz=_et).strftime('%Y-%m-%d')
-                else:
-                    import time as _time
-                    _today_str = _time.strftime('%Y-%m-%d')
+                # Startup snapshot: first call per tour marks all already-completed matches
+                # as pre-existing (not today). Only matches that complete *after* server
+                # start are tagged completed_today=True.
+                if tour not in _startup_snapshot_done:
+                    for m in all_matches:
+                        if m.get('winner') and not m.get('is_live'):
+                            _pre_existing_completed.add((tour, m.get('round'), m.get('pos')))
+                    _startup_snapshot_done.add(tour)
                 for m in all_matches:
                     key = (tour, m.get('round'), m.get('pos'))
                     if m.get('winner') and not m.get('is_live'):
-                        if key not in _match_first_completed:
-                            _match_first_completed[key] = now_ts
-                        # completed_today = was first seen completed today
-                        fc_ts = _match_first_completed[key]
-                        if _et:
-                            fc_date = _dt.fromtimestamp(fc_ts, tz=_et).strftime('%Y-%m-%d')
-                        else:
-                            import time as _t2
-                            fc_date = _t2.strftime('%Y-%m-%d', _t2.localtime(fc_ts))
-                        m['completed_today'] = (fc_date == _today_str)
+                        m['completed_today'] = key not in _pre_existing_completed
                     else:
                         m['completed_today'] = False
                 body = json.dumps({

@@ -1914,9 +1914,28 @@ def _fetch_espn_today_matches(tour):
                             winner_name = p2_name
 
                     # scheduled_time: shown only for upcoming
+                    # Try shortDetail first ("7:00 PM ET"), then parse the ISO date field
                     scheduled_time = ''
-                    if status == 'upcoming' and detail:
-                        scheduled_time = detail  # e.g. "7:00 PM ET"
+                    if status == 'upcoming':
+                        if detail and any(c.isdigit() for c in detail):
+                            scheduled_time = detail
+                        else:
+                            # Fallback: parse comp['date'] ISO timestamp → ET
+                            iso = comp.get('date') or event.get('date') or ''
+                            if iso:
+                                try:
+                                    from datetime import timezone
+                                    dt_utc = datetime.strptime(iso[:19], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
+                                    try:
+                                        from zoneinfo import ZoneInfo as _ZI2
+                                        dt_et = dt_utc.astimezone(_ZI2('America/New_York'))
+                                    except Exception:
+                                        dt_et = dt_utc - timedelta(hours=4)
+                                    hr = dt_et.hour % 12 or 12
+                                    ampm = 'AM' if dt_et.hour < 12 else 'PM'
+                                    scheduled_time = f'{hr}:{dt_et.minute:02d} {ampm} ET'
+                                except Exception:
+                                    pass
 
                     matches.append({
                         'p1': p1_name,

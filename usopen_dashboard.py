@@ -994,7 +994,7 @@ body {
 
       function buildSection(matches, label, color) {
         var live    = matches.filter(function(m){ return m.is_live; });
-        var done    = matches.filter(function(m){ return m.winner && !m.is_live; });
+        var done    = matches.filter(function(m){ return m.winner && !m.is_live && m.completed_today; });
         var upcoming= matches.filter(function(m){ return !m.winner && !m.is_live; });
 
         var rows = '';
@@ -1057,12 +1057,13 @@ body {
         var p1Bold = (m.winner === m.p1) ? 'font-weight:700;color:#00512e;' : (m.winner ? 'color:#aaa;' : '');
         var p2Bold = (m.winner === m.p2) ? 'font-weight:700;color:#00512e;' : (m.winner ? 'color:#aaa;' : '');
 
+        var matchup = '<span style="' + p1Bold + '">' + p1f + p1s + p1 + '</span>'
+          + '<span style="color:#bbb;font-size:0.72rem;margin:0 5px;">vs</span>'
+          + '<span style="' + p2Bold + '">' + p2f + p2s + p2 + '</span>';
         return '<tr style="border-bottom:1px solid #f0ede6;background:' + rowBg + ';">'
-          + '<td style="width:28px;padding:6px 4px;">' + statusCell + '</td>'
-          + '<td style="padding:6px 4px;' + p1Bold + '">' + p1f + p1s + p1 + '</td>'
-          + '<td style="padding:6px 4px;text-align:center;color:#bbb;font-size:0.75rem;width:24px;">vs</td>'
-          + '<td style="padding:6px 4px;' + p2Bold + '">' + p2f + p2s + p2 + '</td>'
-          + scoreCell
+          + '<td style="width:36px;padding:4px 4px;white-space:nowrap;vertical-align:middle;">' + statusCell + '</td>'
+          + '<td style="padding:4px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0;width:99%;vertical-align:middle;">' + matchup + '</td>'
+          + scoreCell.replace('padding:6px', 'padding:4px')
           + '</tr>';
       }
 
@@ -2181,6 +2182,7 @@ def _scrape_group_scores(members=None):
 # Tournament data cache: shared draw+results across all users per request
 _tourney_cache    = {}
 _tourney_cache_ts = {}
+_match_first_completed = {}   # (tour, round, pos) -> float timestamp
 
 
 def _get_tournament_data(tour, members):
@@ -2364,6 +2366,34 @@ class Handler(BaseHTTPRequestHandler):
                 members = members or MEMBERS
                 _, _, all_matches = _get_tournament_data(tour, members)
                 espn = _fetch_espn_live(tour)
+                # Track when each match first became completed; tag completed_today
+                now_ts = time.time()
+                try:
+                    from zoneinfo import ZoneInfo as _ZI
+                    _et = _ZI('America/New_York')
+                except Exception:
+                    _et = None
+                if _et:
+                    from datetime import datetime as _dt
+                    _today_str = _dt.now(tz=_et).strftime('%Y-%m-%d')
+                else:
+                    import time as _time
+                    _today_str = _time.strftime('%Y-%m-%d')
+                for m in all_matches:
+                    key = (tour, m.get('round'), m.get('pos'))
+                    if m.get('winner') and not m.get('is_live'):
+                        if key not in _match_first_completed:
+                            _match_first_completed[key] = now_ts
+                        # completed_today = was first seen completed today
+                        fc_ts = _match_first_completed[key]
+                        if _et:
+                            fc_date = _dt.fromtimestamp(fc_ts, tz=_et).strftime('%Y-%m-%d')
+                        else:
+                            import time as _t2
+                            fc_date = _t2.strftime('%Y-%m-%d', _t2.localtime(fc_ts))
+                        m['completed_today'] = (fc_date == _today_str)
+                    else:
+                        m['completed_today'] = False
                 body = json.dumps({
                     'tour': tour,
                     'matches': all_matches,

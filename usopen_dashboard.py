@@ -1927,32 +1927,46 @@ def _fetch_tour_score(username, tour):
 
     The score lives in the turbo-stream flat array as:
       ..., 'score', <int>, 'lastHash', ...
-    That context (adjacent to 'picks' and 'lastHash') identifies it as the
-    bracket score rather than ATP/WTA ranking points.
+    Served sometimes omits the integer on a cached render, so retry up to 3×.
     """
-    try:
-        url = f'https://served.bracket.tennis/tournaments/{TOURNAMENT_SLUG}/{tour}/brackets/{username}'
-        req = urllib.request.Request(url, headers={
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-            'Accept': 'text/html',
-        })
-        with urllib.request.urlopen(req, timeout=15) as r:
-            html = r.read().decode('utf-8', errors='replace')
-        flat = _parse_flat_array(html)
-        if not flat:
-            return None
-        for i, item in enumerate(flat):
-            if item == 'score' and i + 1 < len(flat):
-                nxt = flat[i + 1]
-                # Score present: ['score', <int>, 'lastHash', ...]
-                if isinstance(nxt, int) and nxt >= 0 and i + 2 < len(flat) and flat[i + 2] == 'lastHash':
-                    return nxt
-                # Score absent (0): ['score', 'lastHash', ...]
-                if nxt == 'lastHash':
-                    return 0
-    except Exception:
-        pass
-    return None
+    url = f'https://served.bracket.tennis/tournaments/{TOURNAMENT_SLUG}/{tour}/brackets/{username}'
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'text/html',
+        'Cache-Control': 'no-cache',
+    }
+    saw_score_field = False
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as r:
+                html = r.read().decode('utf-8', errors='replace')
+            flat = _parse_flat_array(html)
+            if not flat:
+                continue
+            for i, item in enumerate(flat):
+                if item == 'score' and i + 1 < len(flat):
+                    nxt = flat[i + 1]
+                    # Inline score: ['score', <int>, 'lastHash', ...]
+                    if isinstance(nxt, int) and nxt >= 0 and i + 2 < len(flat) and flat[i + 2] == 'lastHash':
+                        return nxt
+                    # Referenced score: score value stored elsewhere via userPrediction dict
+                    # Dict key '_<i>' points to flat[ref] which holds the actual int
+                    if nxt == 'lastHash':
+                        saw_score_field = True
+                        ref_key = f'_{i}'
+                        for el in flat:
+                            if isinstance(el, dict) and ref_key in el:
+                                ref = el[ref_key]
+                                if isinstance(ref, int) and 0 <= ref < len(flat):
+                                    val = flat[ref]
+                                    if isinstance(val, int) and val >= 0:
+                                        return val
+                        break
+        except Exception:
+            pass
+    # After all retries: score field present but always empty → genuine 0
+    return 0 if saw_score_field else None
 
 
 def _scrape_group_scores(members=None):

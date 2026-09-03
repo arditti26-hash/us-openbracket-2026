@@ -2188,26 +2188,32 @@ def _fetch_ai_summary():
         )
 
     prompt = (
-        f"You are a sharp tennis writer covering the US Open. Today is {today_date}, {now_et.strftime('%I:%M %p ET')}.\n\n"
-        f"Write a brief daily update in EXACTLY this format — no intro, no meta-commentary, no explanation of what data you have:\n\n"
+        f"You are a tennis writer for a US Open bracket challenge group. Today is {today_date}, {now_et.strftime('%I:%M %p ET')} ET. "
+        f"{day_context}\n\n"
+        f"Write a punchy daily update for this group of friends watching the draw unfold. "
+        f"Format it exactly like this — start immediately with WOMEN'S, no preamble:\n\n"
         f"WOMEN'S\n"
-        f"[2 sentences max: recap completed Women's matches with scores if any happened today, then 2 sentences on upcoming Women's matches to watch]\n\n"
+        f"<2-3 sharp sentences. If matches finished today, lead with the most surprising or dramatic result — score, scoreline, what it means for the draw. "
+        f"Then tease the next match worth watching and why it matters.>\n\n"
         f"MEN'S\n"
-        f"[2 sentences max: recap completed Men's matches with scores if any happened today, then 2 sentences on upcoming Men's matches to watch]\n\n"
-        f"Hard rules:\n"
-        f"- Output ONLY the update. No notes, no caveats, no \"I don't have...\", no asterisks, no Markdown bold.\n"
-        f"- If no matches completed today, skip the recap sentences entirely and go straight to upcoming.\n"
-        f"- Every sentence under 20 words. Specific players and stakes. No hype words.\n"
-        f"- Only use facts from the data. Never fabricate scores or results.\n"
-        f"- Times in ET only if confirmed in the news context. Otherwise say 'later today' or 'in their upcoming match'.\n\n"
-        f"Data:\n{results_text}\n\n"
-        f"News context:\n{news_text[:2500]}"
+        f"<Same structure. Lead with the best story from today's results, then the must-watch upcoming match.>\n\n"
+        f"Voice and rules:\n"
+        f"- Write like a knowledgeable friend texting the group, not a press release. Short punchy sentences. No jargon.\n"
+        f"- Mention seeds in brackets [3] when relevant, but don't over-explain them.\n"
+        f"- If a result was an upset or a dominant win, say so plainly.\n"
+        f"- For upcoming matches: name the players, mention what's at stake (seed clash, defending run, revenge match, etc.).\n"
+        f"- Only use facts from the data below. Never fabricate scores. Never say 'I don't have' or explain data gaps.\n"
+        f"- If no matches completed today in a draw, skip the recap and go straight to upcoming.\n"
+        f"- No asterisks, no Markdown bold, no bullet points in output. Plain text only.\n"
+        f"- Times in ET only if explicitly in the data. Otherwise use 'later today' or 'up next'.\n\n"
+        f"Tournament data:\n{results_text}\n\n"
+        f"News context:\n{news_text[:3000]}"
     )
 
     try:
         payload = json.dumps({
-            'model': 'claude-haiku-4-5-20251001',
-            'max_tokens': 450,
+            'model': 'claude-sonnet-4-5',
+            'max_tokens': 600,
             'messages': [{'role': 'user', 'content': prompt}],
         }).encode()
         req = urllib.request.Request(
@@ -2550,6 +2556,31 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_body(json.dumps({'picks': named}).encode(), 'application/json')
             except Exception as e:
                 self.send_body(json.dumps({'picks': {}}).encode(), 'application/json')
+        elif self.path.startswith('/api/debug_espn'):
+            # Temporary debug: dump raw ESPN scoreboard response to diagnose field structure
+            try:
+                today_str = datetime.now().strftime('%Y%m%d')
+                url = f'https://site.api.espn.com/apis/site/v2/sports/tennis/scoreboard?dates={today_str}'
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    raw = json.loads(r.read().decode())
+                # Return first 2 events with full competition structure
+                events = raw.get('events', [])[:3]
+                debug = []
+                for ev in events:
+                    for comp in ev.get('competitions', [])[:1]:
+                        debug.append({
+                            'event_name': ev.get('name'),
+                            'event_date': ev.get('date'),
+                            'comp_date': comp.get('date'),
+                            'comp_startDate': comp.get('startDate'),
+                            'status': comp.get('status'),
+                            'competitor_0': (comp.get('competitors') or [{}])[0].get('athlete', {}).get('displayName'),
+                            'competitor_1': (comp.get('competitors') or [{},{}])[1].get('athlete', {}).get('displayName') if len(comp.get('competitors',[]))>1 else None,
+                        })
+                self.send_body(json.dumps({'events': debug}, indent=2).encode(), 'application/json')
+            except Exception as e:
+                self.send_body(json.dumps({'error': str(e)}).encode(), 'application/json')
         elif self.path.startswith('/api/today_matches'):
             try:
                 tour = 'atp'

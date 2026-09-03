@@ -1816,8 +1816,11 @@ def _fetch_espn_today_matches(tour):
     if tour in _espn_today_cache and now - _espn_today_cache_ts.get(tour, 0) < 45:
         return _espn_today_cache[tour]
 
-    slug = 'atp' if tour == 'atp' else 'wta'
     today_str = datetime.now().strftime('%Y%m%d')
+    is_men = (tour == 'atp')
+    # Grand Slams often appear only in the generic endpoint, not tour-specific slugs.
+    # Try tour slug first, then generic; also try generic alone since it covers both tours.
+    slug = 'atp' if is_men else 'wta'
     endpoints = [
         f'https://site.api.espn.com/apis/site/v2/sports/tennis/{slug}/scoreboard?dates={today_str}',
         f'https://site.api.espn.com/apis/site/v2/sports/tennis/scoreboard?dates={today_str}',
@@ -1833,9 +1836,17 @@ def _fetch_espn_today_matches(tour):
             with urllib.request.urlopen(req, timeout=8) as r:
                 data = json.loads(r.read().decode())
             for event in data.get('events', []):
-                # Only singles (no doubles)
                 name_lower = (event.get('name') or '').lower()
+                # Skip doubles
                 if 'double' in name_lower:
+                    continue
+                # Filter by tour using event name keywords
+                # "Men's" → atp, "Women's" → wta; if neither keyword, include for both
+                has_mens   = "men's" in name_lower and "women's" not in name_lower
+                has_womens = "women's" in name_lower
+                if has_mens and not is_men:
+                    continue
+                if has_womens and is_men:
                     continue
                 for comp in event.get('competitions', []):
                     stype     = (comp.get('status') or {}).get('type') or {}

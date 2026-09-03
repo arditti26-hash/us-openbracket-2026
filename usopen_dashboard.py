@@ -879,6 +879,23 @@ body {
       var wrap = document.createElement('div');
       wrap.style.cssText = 'display:flex;height:' + TOTAL_PH + 'px;position:relative;';
 
+      // Build set of players already eliminated (wrong pick in any round)
+      var eliminatedPlayers = {};
+      Object.keys(picks).forEach(function(k) {
+        var p = picks[k];
+        if (p && p.player && (p.status === 'wrong' || p.status === 'eliminated')) {
+          eliminatedPlayers[p.player] = true;
+        }
+      });
+
+      // Resolve effective status — cascade eliminations forward
+      function effectiveStatus(pick) {
+        if (!pick) return 'none';
+        if (pick.status !== 'future') return pick.status;
+        if (pick.player && eliminatedPlayers[pick.player]) return 'eliminated';
+        return 'future';
+      }
+
       // Helper: create a single pick card
       function makeCard(playerName, status, isLoser) {
         var bg, color, fw, borderColor, deco;
@@ -932,7 +949,7 @@ body {
 
           if (rnd === 1) {
             // R1: single card — just show the predicted winner
-            var c = makeCard(winPick ? winPick.player : null, winPick ? winPick.status : 'none', false);
+            var c = makeCard(winPick ? winPick.player : null, effectiveStatus(winPick), false);
             c.style.top = Math.round(centerY - PICK_H / 2) + 'px';
             col.appendChild(c);
           } else {
@@ -955,14 +972,16 @@ body {
             var topY   = Math.round(centerY - pairH / 2);
             var botY   = topY + PICK_H + PAIR_GAP;
 
+            // Winner card status comes from the advancing pick (with elimination cascade)
+            // Participant-as-loser status: use their own pick status (cascaded) for the dim card
             var c1 = makeCard(p1Name,
-              p1IsWinner ? (winPick ? winPick.status : 'future') : (p1Pick ? p1Pick.status : 'none'),
-              !p1IsWinner && winName !== null  // dim if there's a winner pick and it's not this one
+              p1IsWinner ? effectiveStatus(winPick) : effectiveStatus(p1Pick),
+              !p1IsWinner && winName !== null
             );
             c1.style.top = topY + 'px';
 
             var c2 = makeCard(p2Name,
-              p2IsWinner ? (winPick ? winPick.status : 'future') : (p2Pick ? p2Pick.status : 'none'),
+              p2IsWinner ? effectiveStatus(winPick) : effectiveStatus(p2Pick),
               !p2IsWinner && winName !== null
             );
             c2.style.top = botY + 'px';
@@ -2242,21 +2261,25 @@ def _fetch_ai_summary():
         f"Write a punchy daily update for this group of friends watching the draw unfold. "
         f"Format it exactly like this — start immediately with WOMEN'S, no preamble:\n\n"
         f"WOMEN'S\n"
-        f"<2-3 sharp sentences. If matches finished today, lead with the most surprising or dramatic result — score, scoreline, what it means for the draw. "
-        f"Then tease the next match worth watching and why it matters.>\n\n"
+        f"<2-3 sharp sentences. If matches appear in 'Today's completed matches' data, recap the best story — score, what it means for the draw. "
+        f"Then tease the most compelling upcoming match and why it matters.>\n\n"
         f"MEN'S\n"
-        f"<Same structure. Lead with the best story from today's results, then the must-watch upcoming match.>\n\n"
-        f"Voice and rules:\n"
-        f"- Write like a knowledgeable friend texting the group, not a press release. Short punchy sentences. No jargon.\n"
-        f"- Mention seeds in brackets [3] when relevant, but don't over-explain them.\n"
-        f"- If a result was an upset or a dominant win, say so plainly.\n"
-        f"- For upcoming matches: name the players, mention what's at stake (seed clash, defending run, revenge match, etc.).\n"
-        f"- Only use facts from the data below. Never fabricate scores. Never say 'I don't have' or explain data gaps.\n"
-        f"- If no matches completed today in a draw, skip the recap and go straight to upcoming.\n"
-        f"- No asterisks, no Markdown bold, no bullet points in output. Plain text only.\n"
-        f"- Times in ET only if explicitly in the data. Otherwise use 'later today' or 'up next'.\n\n"
-        f"Tournament data:\n{results_text}\n\n"
-        f"News context:\n{news_text[:3000]}"
+        f"<Same structure.>\n\n"
+        f"STRICT ACCURACY RULES — violating these is worse than a shorter update:\n"
+        f"- ONLY state results (winners, losers, scores, round status) that appear WORD FOR WORD in the Tournament data below.\n"
+        f"- Do NOT invent or infer scores, match details, or round completions from the news context. News may be outdated or wrong.\n"
+        f"- Do NOT say a round is 'complete' or 'wrapped up' unless every match in that round appears in the completed data.\n"
+        f"- If today's completed match data is thin or absent for a tour, skip the recap and go straight to upcoming matches.\n"
+        f"- Never fabricate a match that isn't in the data. Never add set scores you don't see.\n"
+        f"- Never say 'I don't have' or explain gaps — just skip to what you do know.\n\n"
+        f"Voice rules:\n"
+        f"- Write like a knowledgeable friend texting the group. Short punchy sentences.\n"
+        f"- Mention seeds in brackets [3] when relevant.\n"
+        f"- Call upsets upsets. Call dominant wins dominant.\n"
+        f"- Times in ET only if explicitly in the data. Otherwise 'later today' or 'up next'.\n"
+        f"- No asterisks, no Markdown bold, no bullet points. Plain text only.\n\n"
+        f"Tournament data (source of truth — only use facts from here):\n{results_text}\n\n"
+        f"News context (background flavor only — never cite specific results from here):\n{news_text[:2000]}"
     )
 
     try:

@@ -428,6 +428,19 @@ body {
     </div>
   </div>
 
+  <!-- TODAY'S MATCHES -->
+  <div class="card" id="today-matches-card" style="margin-bottom:24px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">🎾 Today\'s Matches</div>
+        <div class="card-sub" id="today-matches-sub">Men\'s &amp; Women\'s · Round in progress</div>
+      </div>
+    </div>
+    <div id="today-matches-body" style="padding:12px 16px 16px;">
+      <div style="text-align:center;color:#aaa;font-size:0.85rem;font-family:sans-serif;padding:24px;">Loading…</div>
+    </div>
+  </div>
+
   <!-- AI DAILY SUMMARY -->
   <div class="card" style="margin-bottom:24px;">
     <div class="card-header">
@@ -916,6 +929,149 @@ body {
 
     // Load ATP bracket on page load (after a short delay so scores load first)
     setTimeout(function(){ loadBracket('atp'); }, 800);
+  })();
+  </script>
+
+  <script>
+  // TODAY'S MATCHES
+  (function() {
+    var ROUND_NAMES = ['','R1','R2','R3','R4','QF','SF','F'];
+    var membersParam = (window._currentMembers && window._currentMembers.length)
+      ? '?members=' + encodeURIComponent(window._currentMembers.join(',')) : '';
+
+    function flagOf(code) {
+      if (!code) return '';
+      return code.toUpperCase().replace(/./g, function(c) {
+        return String.fromCodePoint(c.charCodeAt(0) + 127397);
+      }) + ' ';
+    }
+
+    function renderMatches(atpData, wtaData) {
+      var body = document.getElementById('today-matches-body');
+      var sub  = document.getElementById('today-matches-sub');
+
+      function getActiveRound(matches) {
+        // Find the highest round that has any live or pending match
+        var maxActive = 0;
+        matches.forEach(function(m) {
+          if (!m.winner || m.is_live) {
+            if (m.round > maxActive) maxActive = m.round;
+          }
+        });
+        // Also include the round just below if it has live matches
+        return maxActive || 1;
+      }
+
+      var atpRound = getActiveRound(atpData);
+      var wtaRound = getActiveRound(wtaData);
+      sub.textContent = 'Men\'s ' + (ROUND_NAMES[atpRound]||'') + ' · Women\'s ' + (ROUND_NAMES[wtaRound]||'');
+
+      function matchesForRound(matches, rnd) {
+        return matches.filter(function(m){ return m.round === rnd; })
+          .sort(function(a,b){ return a.pos - b.pos; });
+      }
+
+      var atpMs = matchesForRound(atpData, atpRound);
+      var wtaMs = matchesForRound(wtaData, wtaRound);
+
+      function buildSection(matches, label, color) {
+        var live    = matches.filter(function(m){ return m.is_live; });
+        var done    = matches.filter(function(m){ return m.winner && !m.is_live; });
+        var upcoming= matches.filter(function(m){ return !m.winner && !m.is_live; });
+
+        var rows = '';
+
+        // Live
+        live.forEach(function(m) {
+          rows += matchRow(m, 'live');
+        });
+        // Completed
+        done.forEach(function(m) {
+          rows += matchRow(m, 'done');
+        });
+        // Upcoming
+        upcoming.forEach(function(m) {
+          rows += matchRow(m, 'upcoming');
+        });
+
+        if (!rows) return '';
+        return '<div style="margin-bottom:18px;">'
+          + '<div style="font-size:0.65rem;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:' + color + ';font-family:sans-serif;padding:0 0 8px;">'
+          + label + '</div>'
+          + '<table style="width:100%;border-collapse:collapse;font-family:sans-serif;font-size:0.82rem;">'
+          + rows
+          + '</table></div>';
+      }
+
+      function matchRow(m, state) {
+        var p1 = m.p1 || 'TBD';
+        var p2 = m.p2 || 'TBD';
+        var p1f = flagOf(m.p1_country);
+        var p2f = flagOf(m.p2_country);
+        var p1s = (m.p1_rank && m.p1_rank <= 32) ? '<span style="color:#aaa;font-size:0.72rem;">[' + m.p1_rank + ']</span> ' : '';
+        var p2s = (m.p2_rank && m.p2_rank <= 32) ? '<span style="color:#aaa;font-size:0.72rem;">[' + m.p2_rank + ']</span> ' : '';
+
+        var statusCell, rowBg;
+
+        if (state === 'live') {
+          statusCell = '<span style="display:inline-flex;align-items:center;gap:5px;">'
+            + '<span style="width:7px;height:7px;border-radius:50%;background:#c0392b;display:inline-block;animation:blink 1.5s ease-in-out infinite;"></span>'
+            + '<span style="color:#c0392b;font-weight:700;font-size:0.72rem;">LIVE</span></span>';
+          rowBg = '#fff8f8';
+        } else if (state === 'done') {
+          statusCell = '<span style="color:#00512e;font-size:0.72rem;font-weight:600;">FINAL</span>';
+          rowBg = '';
+        } else {
+          statusCell = '<span style="color:#aaa;font-size:0.72rem;">SCHED</span>';
+          rowBg = '';
+        }
+
+        var scoreCell = '';
+        if (m.score) {
+          scoreCell = '<td style="white-space:nowrap;color:#555;font-size:0.75rem;padding:6px 0 6px 8px;">' + m.score + '</td>';
+        } else if (state === 'live') {
+          scoreCell = '<td style="color:#c0392b;font-size:0.75rem;padding:6px 0 6px 8px;">In progress</td>';
+        } else {
+          scoreCell = '<td style="color:#ccc;font-size:0.75rem;padding:6px 0 6px 8px;">—</td>';
+        }
+
+        // Winner styling
+        var p1Bold = (m.winner === m.p1) ? 'font-weight:700;color:#00512e;' : (m.winner ? 'color:#aaa;' : '');
+        var p2Bold = (m.winner === m.p2) ? 'font-weight:700;color:#00512e;' : (m.winner ? 'color:#aaa;' : '');
+
+        return '<tr style="border-bottom:1px solid #f0ede6;background:' + rowBg + ';">'
+          + '<td style="width:28px;padding:6px 4px;">' + statusCell + '</td>'
+          + '<td style="padding:6px 4px;' + p1Bold + '">' + p1f + p1s + p1 + '</td>'
+          + '<td style="padding:6px 4px;text-align:center;color:#bbb;font-size:0.75rem;width:24px;">vs</td>'
+          + '<td style="padding:6px 4px;' + p2Bold + '">' + p2f + p2s + p2 + '</td>'
+          + scoreCell
+          + '</tr>';
+      }
+
+      var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">';
+      html += '<div>' + buildSection(atpMs, "Men\'s Singles", '#00512e') + '</div>';
+      html += '<div>' + buildSection(wtaMs, "Women\'s Singles", '#4b006e') + '</div>';
+      html += '</div>';
+
+      body.innerHTML = html;
+    }
+
+    function loadTodayMatches() {
+      var mp = (window._currentMembers && window._currentMembers.length)
+        ? '?members=' + encodeURIComponent(window._currentMembers.join(',')) : '';
+      Promise.all([
+        fetch('/api/bracket?tour=atp' + (mp ? '&' + mp.slice(1) : '')).then(function(r){ return r.json(); }),
+        fetch('/api/bracket?tour=wta' + (mp ? '&' + mp.slice(1) : '')).then(function(r){ return r.json(); })
+      ]).then(function(results) {
+        renderMatches(results[0].matches || [], results[1].matches || []);
+      }).catch(function() {
+        document.getElementById('today-matches-body').innerHTML =
+          '<div style="text-align:center;color:#aaa;font-size:0.85rem;padding:20px;font-family:sans-serif;">Could not load match data.</div>';
+      });
+    }
+
+    loadTodayMatches();
+    setInterval(loadTodayMatches, 60000);
   })();
   </script>
 

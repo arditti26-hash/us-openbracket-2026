@@ -481,8 +481,9 @@ body {
           } else if (data.summary) {
             var text = data.summary;
             var html = text
-              .replace(/WOMEN'S:/g, '<strong style="font-family:sans-serif;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b1a6b;">Women\'s</strong><br>')
-              .replace(/MEN'S:/g,   '<strong style="font-family:sans-serif;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:#00512e;margin-top:8px;display:block;">Men\'s</strong><br>');
+              .replace(/WOMEN'S:?/g, '<strong style="font-family:sans-serif;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b1a6b;">Women\'s</strong><br>')
+              .replace(/MEN'S:?/g,   '<strong style="font-family:sans-serif;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:#00512e;margin-top:8px;display:block;">Men\'s</strong><br>')
+              .replace(/\n/g, '<br>');
             el.innerHTML = html;
             if (data.updated) upd.textContent = 'Updated · ' + data.updated;
           }
@@ -1833,13 +1834,11 @@ def _fetch_espn_today_matches(tour):
         f'https://site.api.espn.com/apis/site/v2/sports/tennis/scoreboard?dates={today_str}',
     ]
 
+    seen_pairs = set()  # deduplicate across endpoints
     matches = []
     for url in endpoints:
         try:
-            req = urllib.request.Request(url, headers={
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-                'Accept': 'application/json',
-            })
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=8) as r:
                 data = json.loads(r.read().decode())
             for event in data.get('events', []):
@@ -1914,12 +1913,21 @@ def _fetch_espn_today_matches(tour):
                             winner_name = p2_name
 
                     # scheduled_time: shown only for upcoming
-                    # Try shortDetail first ("7:00 PM ET"), then parse the ISO date field
+                    # Try shortDetail/detail first, then event status fields, then ISO date
                     scheduled_time = ''
                     if status == 'upcoming':
-                        if detail and any(c.isdigit() for c in detail):
-                            scheduled_time = detail
-                        else:
+                        # ESPN sometimes puts time in displayClock or status.displayClock
+                        comp_status = comp.get('status') or {}
+                        for candidate in [
+                            detail,
+                            stype.get('displayClock', ''),
+                            comp_status.get('displayClock', ''),
+                            (comp_status.get('type') or {}).get('altDetail', ''),
+                        ]:
+                            if candidate and any(c.isdigit() for c in candidate):
+                                scheduled_time = candidate
+                                break
+                        if not scheduled_time:
                             # Fallback: parse comp['date'] ISO timestamp → ET
                             iso = comp.get('date') or event.get('date') or ''
                             if iso:
@@ -1937,6 +1945,10 @@ def _fetch_espn_today_matches(tour):
                                 except Exception:
                                     pass
 
+                    pair = tuple(sorted([p1_name or '', p2_name or '']))
+                    if pair in seen_pairs:
+                        continue
+                    seen_pairs.add(pair)
                     matches.append({
                         'p1': p1_name,
                         'p2': p2_name,
@@ -1948,8 +1960,6 @@ def _fetch_espn_today_matches(tour):
                         'scheduled_time': scheduled_time,
                         'status': status,
                     })
-            if matches:
-                break  # got data from first working endpoint
         except Exception:
             continue
 

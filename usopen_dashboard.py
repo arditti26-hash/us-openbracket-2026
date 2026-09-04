@@ -1986,6 +1986,7 @@ def _fetch_espn_today_matches(tour):
                     scheduled_time = ''
                     if status == 'upcoming':
                         iso = comp.get('date') or event.get('date') or ''
+                        skip_match = False
                         if iso:
                             try:
                                 from datetime import timezone
@@ -1997,14 +1998,19 @@ def _fetch_espn_today_matches(tour):
                                     dt_et = dt_utc - timedelta(hours=4)
                                 # Skip if not today ET
                                 if dt_et.strftime('%Y%m%d') != today_str:
-                                    continue
-                                hr = dt_et.hour % 12 or 12
-                                ampm = 'AM' if dt_et.hour < 12 else 'PM'
-                                scheduled_time = f'{hr}:{dt_et.minute:02d} {ampm} ET'
+                                    skip_match = True
+                                else:
+                                    # Only show time if it's not midnight (date-only placeholder)
+                                    if dt_et.hour != 0 or dt_et.minute != 0:
+                                        hr = dt_et.hour % 12 or 12
+                                        ampm = 'AM' if dt_et.hour < 12 else 'PM'
+                                        scheduled_time = f'{hr}:{dt_et.minute:02d} {ampm} ET'
                             except Exception:
-                                pass
+                                pass  # can't parse date — include match with no time
+                        if skip_match:
+                            continue
                         if not scheduled_time:
-                            # No ISO date — try ESPN status text fields
+                            # Try ESPN status text fields for a readable time
                             comp_status = comp.get('status') or {}
                             for candidate in [
                                 detail,
@@ -2012,9 +2018,11 @@ def _fetch_espn_today_matches(tour):
                                 comp_status.get('displayClock', ''),
                                 (comp_status.get('type') or {}).get('altDetail', ''),
                             ]:
-                                if candidate and any(c.isdigit() for c in candidate):
+                                if candidate and any(ch.isdigit() for ch in candidate):
                                     scheduled_time = candidate
                                     break
+                        if not scheduled_time:
+                            scheduled_time = 'TBD'
 
                     pair = tuple(sorted([p1_name or '', p2_name or '']))
                     if pair in seen_pairs:
@@ -2668,6 +2676,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_body(json.dumps({'today_et': today_str, 'endpoints': results}, indent=2).encode(), 'application/json')
             except Exception as e:
                 self.send_body(json.dumps({'error': str(e)}).encode(), 'application/json')
+        elif self.path.startswith('/api/debug_today'):
+            try:
+                tour = 'atp'
+                if 'tour=wta' in self.path:
+                    tour = 'wta'
+                parsed = _fetch_espn_today_matches(tour)
+                self.send_body(json.dumps({'tour': tour, 'count': len(parsed), 'matches': parsed}, indent=2).encode(), 'application/json')
+            except Exception as e:
+                self.send_body(json.dumps({'error': str(e)}).encode(), 'application/json')
         elif self.path.startswith('/api/today_matches'):
             try:
                 tour = 'atp'
@@ -2753,7 +2770,7 @@ class Handler(BaseHTTPRequestHandler):
                         if pair not in seen_pairs:
                             matches.append({'p1':p1,'p2':p2,'p1_country':m.get('p1_country',''),'p2_country':m.get('p2_country',''),
                                             'p1_rank':m.get('p1_rank',999),'p2_rank':m.get('p2_rank',999),
-                                            'winner':'','score':'','is_live':False,'scheduled_time':'','status':'upcoming'})
+                                            'winner':'','score':'','is_live':False,'scheduled_time':'TBD','status':'upcoming'})
                             seen_pairs.add(pair)
 
                 self.send_body(json.dumps({'matches': matches, 'source': 'hybrid'}).encode(), 'application/json')

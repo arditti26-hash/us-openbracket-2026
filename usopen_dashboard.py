@@ -1120,6 +1120,15 @@ body {
         done     = matches.filter(function(m){ return m.winner && !m.is_live && m.completed_today; });
         upcoming = matches.filter(function(m){ return !m.winner && !m.is_live; });
       }
+      // Sort upcoming: TBD goes last, others by time string
+      upcoming.sort(function(a, b) {
+        var at = a.scheduled_time || '', bt = b.scheduled_time || '';
+        var aLast = !at || at === 'TBD';
+        var bLast = !bt || bt === 'TBD';
+        if (aLast && !bLast) return 1;
+        if (!aLast && bLast) return -1;
+        return at.localeCompare(bt);
+      });
       var rows = '';
       live.forEach(function(m)    { rows += matchRow(m, 'live', espnCtx);     });
       done.forEach(function(m)    { rows += matchRow(m, 'done', espnCtx);     });

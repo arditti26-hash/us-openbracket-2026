@@ -2703,15 +2703,19 @@ class Handler(BaseHTTPRequestHandler):
                         if not p1 or not p2:
                             continue
                         pair = tuple(sorted([p1, p2]))
+                        p1_rank = m.get('p1_rank', 999)
+                        p2_rank = m.get('p2_rank', 999)
                         if m.get('is_live'):
                             # Use bracket's own score field — served.bracket shows live scores
                             # and the name already matches exactly. No ESPN name-matching needed.
                             score = m.get('score','') or score_lookup.get((m['round'], m['pos']),'')
                             matches.append({'p1':p1,'p2':p2,'p1_country':m.get('p1_country',''),'p2_country':m.get('p2_country',''),
+                                            'p1_rank':p1_rank,'p2_rank':p2_rank,
                                             'winner':'','score':score,'is_live':True,'scheduled_time':'','status':'live'})
                             seen_pairs.add(pair)
                         elif m.get('winner'):
                             matches.append({'p1':p1,'p2':p2,'p1_country':m.get('p1_country',''),'p2_country':m.get('p2_country',''),
+                                            'p1_rank':p1_rank,'p2_rank':p2_rank,
                                             'winner':m.get('winner',''),'score':score_lookup.get((m['round'],m['pos']),''),
                                             'is_live':False,'scheduled_time':'','status':'final'})
                             seen_pairs.add(pair)
@@ -2748,6 +2752,7 @@ class Handler(BaseHTTPRequestHandler):
                         pair = tuple(sorted([p1, p2]))
                         if pair not in seen_pairs:
                             matches.append({'p1':p1,'p2':p2,'p1_country':m.get('p1_country',''),'p2_country':m.get('p2_country',''),
+                                            'p1_rank':m.get('p1_rank',999),'p2_rank':m.get('p2_rank',999),
                                             'winner':'','score':'','is_live':False,'scheduled_time':'','status':'upcoming'})
                             seen_pairs.add(pair)
 

@@ -1880,6 +1880,70 @@ def _fetch_espn_live(tour):
 
 _espn_today_cache    = {}   # tour -> list[match_dict]
 _espn_today_cache_ts = {}
+_usopen_sched_cache    = {}  # tour -> {frozenset({last1,last2}): time_str}
+_usopen_sched_cache_ts = {}
+
+
+def _fetch_usopen_schedule(tour):
+    """
+    Fetch today's US Open schedule from usopen.org feeds.
+    Returns dict keyed by frozenset of player last names → scheduled time string.
+    Also keyed by frozenset of full names for broader matching.
+    """
+    now = time.time()
+    if tour in _usopen_sched_cache and now - _usopen_sched_cache_ts.get(tour, 0) < 120:
+        return _usopen_sched_cache[tour]
+
+    result = {}
+    try:
+        event_code = 'MS' if tour == 'atp' else 'WS'
+        days_url = 'https://www.usopen.org/en_US/scores/feeds/2026/schedule/scheduleDays.json'
+        req = urllib.request.Request(days_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            days_data = json.loads(r.read().decode())
+
+        feed_url = None
+        for day in days_data.get('eventDays', []):
+            if day.get('currentDay'):
+                feed_url = day.get('feedUrl')
+                break
+
+        if not feed_url:
+            _usopen_sched_cache[tour] = result
+            _usopen_sched_cache_ts[tour] = now
+            return result
+
+        req = urllib.request.Request(feed_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            sched = json.loads(r.read().decode())
+
+        for court in sched.get('courts', []):
+            court_time = court.get('time', '')
+            for match in court.get('matches', []):
+                if match.get('eventCode') != event_code:
+                    continue
+                t = match.get('notBefore') or court_time or 'TBD'
+                if t and t != 'TBD' and 'ET' not in t:
+                    t = t + ' ET'
+                t1 = (match.get('team1') or [{}])[0]
+                t2 = (match.get('team2') or [{}])[0]
+                last1 = (t1.get('lastNameA') or '').strip()
+                last2 = (t2.get('lastNameA') or '').strip()
+                first1 = (t1.get('firstNameA') or '').strip()
+                first2 = (t2.get('firstNameA') or '').strip()
+                full1 = f'{first1} {last1}'.strip()
+                full2 = f'{first2} {last2}'.strip()
+                if last1 and last2:
+                    key_last = frozenset([last1.lower(), last2.lower()])
+                    key_full = frozenset([full1.lower(), full2.lower()])
+                    result[key_last] = t
+                    result[key_full] = t
+    except Exception:
+        pass
+
+    _usopen_sched_cache[tour] = result
+    _usopen_sched_cache_ts[tour] = now
+    return result
 
 def _fetch_espn_today_matches(tour):
     """
@@ -2711,6 +2775,7 @@ class Handler(BaseHTTPRequestHandler):
                     active_round = min(incomplete_rounds) if incomplete_rounds else (max(completed_rounds) if completed_rounds else 0)
                     espn_live   = _fetch_espn_live(tour)
                     espn_scores = espn_live.get('scores', {})
+                    usopen_sched = _fetch_usopen_schedule(tour)
 
                     for m in all_matches:
                         if m.get('round') != active_round:
@@ -2768,10 +2833,29 @@ class Handler(BaseHTTPRequestHandler):
                             continue  # skip completed and live — only want not-started
                         pair = tuple(sorted([p1, p2]))
                         if pair not in seen_pairs:
+                            # Look up scheduled time from US Open schedule feed
+                            p1_last = p1.strip().split()[-1] if p1.strip() else ''
+                            p2_last = p2.strip().split()[-1] if p2.strip() else ''
+                            sched_key_last = frozenset([p1_last.lower(), p2_last.lower()])
+                            sched_key_full = frozenset([p1.lower(), p2.lower()])
+                            sched_time = (usopen_sched.get(sched_key_full)
+                                          or usopen_sched.get(sched_key_last)
+                                          or 'TBD')
                             matches.append({'p1':p1,'p2':p2,'p1_country':m.get('p1_country',''),'p2_country':m.get('p2_country',''),
                                             'p1_rank':m.get('p1_rank',999),'p2_rank':m.get('p2_rank',999),
-                                            'winner':'','score':'','is_live':False,'scheduled_time':'TBD','status':'upcoming'})
+                                            'winner':'','score':'','is_live':False,'scheduled_time':sched_time,'status':'upcoming'})
                             seen_pairs.add(pair)
+
+                # Also patch in US Open times for any ESPN upcoming matches missing a time
+                for m in matches:
+                    if m.get('status') == 'upcoming' and not m.get('scheduled_time') or m.get('scheduled_time') == 'TBD':
+                        p1_last = (m.get('p1','') or '').strip().split()[-1] if m.get('p1','').strip() else ''
+                        p2_last = (m.get('p2','') or '').strip().split()[-1] if m.get('p2','').strip() else ''
+                        sched_key_last = frozenset([p1_last.lower(), p2_last.lower()])
+                        sched_key_full = frozenset([(m.get('p1','') or '').lower(), (m.get('p2','') or '').lower()])
+                        t = usopen_sched.get(sched_key_full) or usopen_sched.get(sched_key_last)
+                        if t:
+                            m['scheduled_time'] = t
 
                 self.send_body(json.dumps({'matches': matches, 'source': 'hybrid'}).encode(), 'application/json')
             except Exception as e:

@@ -2704,7 +2704,9 @@ class Handler(BaseHTTPRequestHandler):
                             continue
                         pair = tuple(sorted([p1, p2]))
                         if m.get('is_live'):
-                            score = espn_scores.get(p1) or espn_scores.get(p2) or score_lookup.get((m['round'], m['pos']),'')
+                            # Use bracket's own score field — served.bracket shows live scores
+                            # and the name already matches exactly. No ESPN name-matching needed.
+                            score = m.get('score','') or score_lookup.get((m['round'], m['pos']),'')
                             matches.append({'p1':p1,'p2':p2,'p1_country':m.get('p1_country',''),'p2_country':m.get('p2_country',''),
                                             'winner':'','score':score,'is_live':True,'scheduled_time':'','status':'live'})
                             seen_pairs.add(pair)
@@ -2717,6 +2719,7 @@ class Handler(BaseHTTPRequestHandler):
                     pass
 
                 # --- ESPN: upcoming only, today ET date-filtered ---
+                espn_upcoming_count = 0
                 try:
                     espn_all = _fetch_espn_today_matches(tour)
                     for m in espn_all:
@@ -2726,8 +2729,27 @@ class Handler(BaseHTTPRequestHandler):
                         if pair not in seen_pairs:
                             matches.append(m)
                             seen_pairs.add(pair)
+                            espn_upcoming_count += 1
                 except Exception:
                     pass
+
+                # Fallback: if ESPN gave no upcoming, use incomplete bracket matches
+                # from the active round (matches without a winner and not live)
+                if espn_upcoming_count == 0:
+                    for m in all_matches:
+                        if m.get('round') != active_round:
+                            continue
+                        p1 = m.get('p1','')
+                        p2 = m.get('p2','')
+                        if not p1 or not p2:
+                            continue
+                        if m.get('winner') or m.get('is_live'):
+                            continue  # skip completed and live — only want not-started
+                        pair = tuple(sorted([p1, p2]))
+                        if pair not in seen_pairs:
+                            matches.append({'p1':p1,'p2':p2,'p1_country':m.get('p1_country',''),'p2_country':m.get('p2_country',''),
+                                            'winner':'','score':'','is_live':False,'scheduled_time':'','status':'upcoming'})
+                            seen_pairs.add(pair)
 
                 self.send_body(json.dumps({'matches': matches, 'source': 'hybrid'}).encode(), 'application/json')
             except Exception as e:

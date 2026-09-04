@@ -1981,38 +1981,40 @@ def _fetch_espn_today_matches(tour):
                         elif p2_won:
                             winner_name = p2_name
 
-                    # scheduled_time: shown only for upcoming
-                    # Try shortDetail/detail first, then event status fields, then ISO date
+                    # For upcoming matches: verify the match is actually scheduled for TODAY ET.
+                    # ESPN sometimes returns multi-day lookahead; filter those out.
                     scheduled_time = ''
                     if status == 'upcoming':
-                        # ESPN sometimes puts time in displayClock or status.displayClock
-                        comp_status = comp.get('status') or {}
-                        for candidate in [
-                            detail,
-                            stype.get('displayClock', ''),
-                            comp_status.get('displayClock', ''),
-                            (comp_status.get('type') or {}).get('altDetail', ''),
-                        ]:
-                            if candidate and any(c.isdigit() for c in candidate):
-                                scheduled_time = candidate
-                                break
-                        if not scheduled_time:
-                            # Fallback: parse comp['date'] ISO timestamp → ET
-                            iso = comp.get('date') or event.get('date') or ''
-                            if iso:
+                        iso = comp.get('date') or event.get('date') or ''
+                        if iso:
+                            try:
+                                from datetime import timezone
+                                dt_utc = datetime.strptime(iso[:19], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
                                 try:
-                                    from datetime import timezone
-                                    dt_utc = datetime.strptime(iso[:19], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
-                                    try:
-                                        from zoneinfo import ZoneInfo as _ZI2
-                                        dt_et = dt_utc.astimezone(_ZI2('America/New_York'))
-                                    except Exception:
-                                        dt_et = dt_utc - timedelta(hours=4)
-                                    hr = dt_et.hour % 12 or 12
-                                    ampm = 'AM' if dt_et.hour < 12 else 'PM'
-                                    scheduled_time = f'{hr}:{dt_et.minute:02d} {ampm} ET'
+                                    from zoneinfo import ZoneInfo as _ZI2
+                                    dt_et = dt_utc.astimezone(_ZI2('America/New_York'))
                                 except Exception:
-                                    pass
+                                    dt_et = dt_utc - timedelta(hours=4)
+                                # Skip if not today ET
+                                if dt_et.strftime('%Y%m%d') != today_str:
+                                    continue
+                                hr = dt_et.hour % 12 or 12
+                                ampm = 'AM' if dt_et.hour < 12 else 'PM'
+                                scheduled_time = f'{hr}:{dt_et.minute:02d} {ampm} ET'
+                            except Exception:
+                                pass
+                        if not scheduled_time:
+                            # No ISO date — try ESPN status text fields
+                            comp_status = comp.get('status') or {}
+                            for candidate in [
+                                detail,
+                                stype.get('displayClock', ''),
+                                comp_status.get('displayClock', ''),
+                                (comp_status.get('type') or {}).get('altDetail', ''),
+                            ]:
+                                if candidate and any(c.isdigit() for c in candidate):
+                                    scheduled_time = candidate
+                                    break
 
                     pair = tuple(sorted([p1_name or '', p2_name or '']))
                     if pair in seen_pairs:
@@ -2632,28 +2634,38 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_body(json.dumps({'picks': {}}).encode(), 'application/json')
         elif self.path.startswith('/api/debug_espn'):
-            # Temporary debug: dump raw ESPN scoreboard response to diagnose field structure
             try:
-                today_str = datetime.now().strftime('%Y%m%d')
-                url = f'https://site.api.espn.com/apis/site/v2/sports/tennis/scoreboard?dates={today_str}'
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=10) as r:
-                    raw = json.loads(r.read().decode())
-                # Return first 2 events with full competition structure
-                events = raw.get('events', [])[:3]
-                debug = []
-                for ev in events:
-                    for comp in ev.get('competitions', [])[:1]:
-                        debug.append({
-                            'event_name': ev.get('name'),
-                            'event_date': ev.get('date'),
-                            'comp_date': comp.get('date'),
-                            'comp_startDate': comp.get('startDate'),
-                            'status': comp.get('status'),
-                            'competitor_0': (comp.get('competitors') or [{}])[0].get('athlete', {}).get('displayName'),
-                            'competitor_1': (comp.get('competitors') or [{},{}])[1].get('athlete', {}).get('displayName') if len(comp.get('competitors',[]))>1 else None,
-                        })
-                self.send_body(json.dumps({'events': debug}, indent=2).encode(), 'application/json')
+                today_str = _now_et().strftime('%Y%m%d')
+                results = {}
+                for label, url in [
+                    ('usopen', f'https://site.api.espn.com/apis/site/v2/sports/tennis/usopen/scoreboard?dates={today_str}&limit=100'),
+                    ('atp',    f'https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard?dates={today_str}&limit=100'),
+                    ('wta',    f'https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard?dates={today_str}&limit=100'),
+                    ('generic',f'https://site.api.espn.com/apis/site/v2/sports/tennis/scoreboard?dates={today_str}&limit=100'),
+                ]:
+                    try:
+                        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                        with urllib.request.urlopen(req, timeout=8) as r:
+                            raw = json.loads(r.read().decode())
+                        matches = []
+                        for ev in raw.get('events', []):
+                            for comp in ev.get('competitions', []):
+                                st = (comp.get('status') or {}).get('type', {})
+                                comps = comp.get('competitors', [])
+                                p1 = comps[0].get('athlete',{}).get('displayName','?') if comps else '?'
+                                p2 = comps[1].get('athlete',{}).get('displayName','?') if len(comps)>1 else '?'
+                                matches.append({
+                                    'match': f'{p1} vs {p2}',
+                                    'event_name': ev.get('name',''),
+                                    'comp_date': comp.get('date',''),
+                                    'status': st.get('name',''),
+                                    'completed': st.get('completed'),
+                                    'detail': st.get('shortDetail',''),
+                                })
+                        results[label] = {'count': len(matches), 'matches': matches}
+                    except Exception as e:
+                        results[label] = {'error': str(e)}
+                self.send_body(json.dumps({'today_et': today_str, 'endpoints': results}, indent=2).encode(), 'application/json')
             except Exception as e:
                 self.send_body(json.dumps({'error': str(e)}).encode(), 'application/json')
         elif self.path.startswith('/api/today_matches'):
@@ -2664,12 +2676,48 @@ class Handler(BaseHTTPRequestHandler):
                         if part.startswith('tour='):
                             tour = part[5:].lower()
 
-                # ESPN is the authoritative source for today's matches.
-                # scoreboard?dates=YYYYMMDD (ET date) returns completed, live, and upcoming
-                # for that calendar day — no bracket fallback which would bleed in yesterday's round.
+                # ESPN: live + upcoming (today only) + recently completed.
+                # ESPN drops completed matches from its scoreboard over time, so we supplement
+                # with bracket data for completed matches from the current active round only.
                 espn_matches = _fetch_espn_today_matches(tour)
-                source = 'espn' if espn_matches else 'none'
-                self.send_body(json.dumps({'matches': espn_matches, 'source': source}).encode(), 'application/json')
+
+                bracket_completed = []
+                try:
+                    _, results, all_matches = _get_tournament_data(tour, MEMBERS)
+                    round_names = {1:'R1',2:'R2',3:'R3',4:'R4',5:'QF',6:'SF',7:'Final'}
+                    score_lookup = {(m['round'], m['pos']): m.get('score','')
+                                    for m in all_matches if m.get('winner') and m.get('score')}
+                    completed_rounds = {m.get('round',0) for m in all_matches
+                                        if m.get('winner') and not m.get('is_live')}
+                    current_round = max(completed_rounds) if completed_rounds else 0
+                    for m in all_matches:
+                        if m.get('winner') and not m.get('is_live') and m.get('round') == current_round:
+                            bracket_completed.append({
+                                'p1': m.get('p1',''), 'p2': m.get('p2',''),
+                                'p1_country': m.get('p1_country',''), 'p2_country': m.get('p2_country',''),
+                                'winner': m.get('winner',''),
+                                'score': score_lookup.get((m['round'], m['pos']),''),
+                                'is_live': False, 'scheduled_time': '', 'status': 'final',
+                            })
+                except Exception:
+                    pass
+
+                # Merge: ESPN wins on duplicates (has live scores); bracket fills completed ESPN dropped
+                seen_pairs = set()
+                merged = []
+                for m in espn_matches:
+                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
+                    if pair not in seen_pairs:
+                        merged.append(m)
+                        seen_pairs.add(pair)
+                for m in bracket_completed:
+                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
+                    if pair not in seen_pairs:
+                        merged.append(m)
+                        seen_pairs.add(pair)
+
+                source = 'espn' if espn_matches else ('bracket' if merged else 'none')
+                self.send_body(json.dumps({'matches': merged, 'source': source}).encode(), 'application/json')
             except Exception as e:
                 self.send_body(json.dumps({'matches': [], 'source': 'error', 'error': str(e)}).encode(), 'application/json')
         elif self.path.startswith('/api/bracket'):

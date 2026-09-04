@@ -972,17 +972,20 @@ body {
             var topY   = Math.round(centerY - pairH / 2);
             var botY   = topY + PICK_H + PAIR_GAP;
 
-            // Winner card status comes from the advancing pick (with elimination cascade)
-            // Participant-as-loser status: use their own pick status (cascaded) for the dim card
+            // isLoser (gray/dim) only applies if the player is a genuine "predicted loser" here
+            // — NOT if they were already eliminated in a prior round (those must stay red).
+            var p1Eliminated = p1Name && eliminatedPlayers[p1Name];
+            var p2Eliminated = p2Name && eliminatedPlayers[p2Name];
+
             var c1 = makeCard(p1Name,
               p1IsWinner ? effectiveStatus(winPick) : effectiveStatus(p1Pick),
-              !p1IsWinner && winName !== null
+              !p1IsWinner && winName !== null && !p1Eliminated
             );
             c1.style.top = topY + 'px';
 
             var c2 = makeCard(p2Name,
               p2IsWinner ? effectiveStatus(winPick) : effectiveStatus(p2Pick),
-              !p2IsWinner && winName !== null
+              !p2IsWinner && winName !== null && !p2Eliminated
             );
             c2.style.top = botY + 'px';
 
@@ -1890,17 +1893,13 @@ def _fetch_espn_today_matches(tour):
     if tour in _espn_today_cache and now - _espn_today_cache_ts.get(tour, 0) < 45:
         return _espn_today_cache[tour]
 
-    today_str = datetime.now().strftime('%Y%m%d')
+    # Use ET date — server may be UTC, so a naive datetime.now() can be a day off after midnight ET
+    today_str = _now_et().strftime('%Y%m%d')
     is_men = (tour == 'atp')
-    # Grand Slams often appear only in the generic endpoint, not tour-specific slugs.
-    # Try tour slug first, then generic; also try generic alone since it covers both tours.
     slug = 'atp' if is_men else 'wta'
     endpoints = [
-        # US Open specific — most complete for Grand Slam day results
         f'https://site.api.espn.com/apis/site/v2/sports/tennis/usopen/scoreboard?dates={today_str}&limit=100',
-        # Tour-specific fallback
         f'https://site.api.espn.com/apis/site/v2/sports/tennis/{slug}/scoreboard?dates={today_str}&limit=100',
-        # Generic tennis fallback
         f'https://site.api.espn.com/apis/site/v2/sports/tennis/scoreboard?dates={today_str}&limit=100',
     ]
 
@@ -2665,48 +2664,12 @@ class Handler(BaseHTTPRequestHandler):
                         if part.startswith('tour='):
                             tour = part[5:].lower()
 
-                # Bracket: all completed matches from the current active round
-                bracket_completed = []
-                try:
-                    _, results, all_matches = _get_tournament_data(tour, MEMBERS)
-                    round_names = {1:'R1',2:'R2',3:'R3',4:'R4',5:'QF',6:'SF',7:'Final'}
-                    score_lookup = {(m['round'], m['pos']): m.get('score','')
-                                    for m in all_matches if m.get('winner') and m.get('score')}
-                    completed_rounds = {m.get('round',0) for m in all_matches
-                                        if m.get('winner') and not m.get('is_live')}
-                    current_round = max(completed_rounds) if completed_rounds else 0
-                    for m in all_matches:
-                        if m.get('winner') and not m.get('is_live') and m.get('round') == current_round:
-                            bracket_completed.append({
-                                'p1': m.get('p1',''), 'p2': m.get('p2',''),
-                                'p1_country': m.get('p1_country',''), 'p2_country': m.get('p2_country',''),
-                                'winner': m.get('winner',''),
-                                'score': score_lookup.get((m['round'], m['pos']),''),
-                                'is_live': False, 'scheduled_time': '', 'status': 'final',
-                                'round': round_names.get(m.get('round',0), ''),
-                            })
-                except Exception:
-                    pass
-
-                # ESPN: live + upcoming (scoreboard drops completed matches over time)
+                # ESPN is the authoritative source for today's matches.
+                # scoreboard?dates=YYYYMMDD (ET date) returns completed, live, and upcoming
+                # for that calendar day — no bracket fallback which would bleed in yesterday's round.
                 espn_matches = _fetch_espn_today_matches(tour)
-
-                # Merge: ESPN wins on duplicates (has live scores); bracket fills completed
-                seen_pairs = set()
-                merged = []
-                for m in espn_matches:
-                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
-                    if pair not in seen_pairs:
-                        merged.append(m)
-                        seen_pairs.add(pair)
-                for m in bracket_completed:
-                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
-                    if pair not in seen_pairs:
-                        merged.append(m)
-                        seen_pairs.add(pair)
-
-                source = 'espn' if espn_matches else ('bracket' if merged else 'none')
-                self.send_body(json.dumps({'matches': merged, 'source': source}).encode(), 'application/json')
+                source = 'espn' if espn_matches else 'none'
+                self.send_body(json.dumps({'matches': espn_matches, 'source': source}).encode(), 'application/json')
             except Exception as e:
                 self.send_body(json.dumps({'matches': [], 'source': 'error', 'error': str(e)}).encode(), 'application/json')
         elif self.path.startswith('/api/bracket'):

@@ -2687,9 +2687,13 @@ class Handler(BaseHTTPRequestHandler):
                     round_names = {1:'R1',2:'R2',3:'R3',4:'R4',5:'QF',6:'SF',7:'Final'}
                     score_lookup = {(m['round'], m['pos']): m.get('score','')
                                     for m in all_matches if m.get('winner') and m.get('score')}
-                    completed_rounds = {m.get('round',0) for m in all_matches
-                                        if m.get('winner') and not m.get('is_live')}
-                    current_round = max(completed_rounds) if completed_rounds else 0
+                    # Active round = lowest round that still has incomplete matches (live or upcoming).
+                    # This equals "today's round" reliably, even before any matches complete.
+                    incomplete_rounds = {m.get('round',0) for m in all_matches
+                                         if not m.get('winner') or m.get('is_live')}
+                    completed_rounds  = {m.get('round',0) for m in all_matches
+                                         if m.get('winner') and not m.get('is_live')}
+                    current_round = min(incomplete_rounds) if incomplete_rounds else (max(completed_rounds) if completed_rounds else 0)
                     for m in all_matches:
                         if m.get('winner') and not m.get('is_live') and m.get('round') == current_round:
                             bracket_completed.append({

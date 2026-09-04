@@ -2676,52 +2676,60 @@ class Handler(BaseHTTPRequestHandler):
                         if part.startswith('tour='):
                             tour = part[5:].lower()
 
-                # ESPN: live + upcoming (today only) + recently completed.
-                # ESPN drops completed matches from its scoreboard over time, so we supplement
-                # with bracket data for completed matches from the current active round only.
-                espn_matches = _fetch_espn_today_matches(tour)
+                # Hybrid approach:
+                #   Bracket  → live + completed (reliable, no date ambiguity)
+                #   ESPN     → upcoming only, date-filtered to today ET (drops completed, but we don't need that)
+                matches = []
+                seen_pairs = set()
 
-                bracket_completed = []
+                # --- BRACKET: live + completed from active round ---
                 try:
-                    _, results, all_matches = _get_tournament_data(tour, MEMBERS)
-                    round_names = {1:'R1',2:'R2',3:'R3',4:'R4',5:'QF',6:'SF',7:'Final'}
+                    _, results_map, all_matches = _get_tournament_data(tour, MEMBERS)
                     score_lookup = {(m['round'], m['pos']): m.get('score','')
                                     for m in all_matches if m.get('winner') and m.get('score')}
-                    # Active round = lowest round that still has incomplete matches (live or upcoming).
-                    # This equals "today's round" reliably, even before any matches complete.
                     incomplete_rounds = {m.get('round',0) for m in all_matches
                                          if not m.get('winner') or m.get('is_live')}
                     completed_rounds  = {m.get('round',0) for m in all_matches
                                          if m.get('winner') and not m.get('is_live')}
-                    current_round = min(incomplete_rounds) if incomplete_rounds else (max(completed_rounds) if completed_rounds else 0)
+                    active_round = min(incomplete_rounds) if incomplete_rounds else (max(completed_rounds) if completed_rounds else 0)
+                    espn_live   = _fetch_espn_live(tour)
+                    espn_scores = espn_live.get('scores', {})
+
                     for m in all_matches:
-                        if m.get('winner') and not m.get('is_live') and m.get('round') == current_round:
-                            bracket_completed.append({
-                                'p1': m.get('p1',''), 'p2': m.get('p2',''),
-                                'p1_country': m.get('p1_country',''), 'p2_country': m.get('p2_country',''),
-                                'winner': m.get('winner',''),
-                                'score': score_lookup.get((m['round'], m['pos']),''),
-                                'is_live': False, 'scheduled_time': '', 'status': 'final',
-                            })
+                        if m.get('round') != active_round:
+                            continue
+                        p1 = m.get('p1','')
+                        p2 = m.get('p2','')
+                        if not p1 or not p2:
+                            continue
+                        pair = tuple(sorted([p1, p2]))
+                        if m.get('is_live'):
+                            score = espn_scores.get(p1) or espn_scores.get(p2) or score_lookup.get((m['round'], m['pos']),'')
+                            matches.append({'p1':p1,'p2':p2,'p1_country':m.get('p1_country',''),'p2_country':m.get('p2_country',''),
+                                            'winner':'','score':score,'is_live':True,'scheduled_time':'','status':'live'})
+                            seen_pairs.add(pair)
+                        elif m.get('winner'):
+                            matches.append({'p1':p1,'p2':p2,'p1_country':m.get('p1_country',''),'p2_country':m.get('p2_country',''),
+                                            'winner':m.get('winner',''),'score':score_lookup.get((m['round'],m['pos']),''),
+                                            'is_live':False,'scheduled_time':'','status':'final'})
+                            seen_pairs.add(pair)
                 except Exception:
                     pass
 
-                # Merge: ESPN wins on duplicates (has live scores); bracket fills completed ESPN dropped
-                seen_pairs = set()
-                merged = []
-                for m in espn_matches:
-                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
-                    if pair not in seen_pairs:
-                        merged.append(m)
-                        seen_pairs.add(pair)
-                for m in bracket_completed:
-                    pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
-                    if pair not in seen_pairs:
-                        merged.append(m)
-                        seen_pairs.add(pair)
+                # --- ESPN: upcoming only, today ET date-filtered ---
+                try:
+                    espn_all = _fetch_espn_today_matches(tour)
+                    for m in espn_all:
+                        if m.get('status') != 'upcoming':
+                            continue
+                        pair = tuple(sorted([m.get('p1',''), m.get('p2','')]))
+                        if pair not in seen_pairs:
+                            matches.append(m)
+                            seen_pairs.add(pair)
+                except Exception:
+                    pass
 
-                source = 'espn' if espn_matches else ('bracket' if merged else 'none')
-                self.send_body(json.dumps({'matches': merged, 'source': source}).encode(), 'application/json')
+                self.send_body(json.dumps({'matches': matches, 'source': 'hybrid'}).encode(), 'application/json')
             except Exception as e:
                 self.send_body(json.dumps({'matches': [], 'source': 'error', 'error': str(e)}).encode(), 'application/json')
         elif self.path.startswith('/api/bracket'):

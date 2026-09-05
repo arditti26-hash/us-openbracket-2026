@@ -1386,7 +1386,7 @@ async function loadData() {
     allData = await res.json();
     render();
     if (window._populatePickDropdown) window._populatePickDropdown(members);
-    document.getElementById('footer').innerHTML = '🍈 &nbsp;US Open 2026 · Flushing Meadows · New York · Scores from served.bracket.tennis · Updated: ' + allData.updated;
+    document.getElementById('footer').innerHTML = '🍈 &nbsp;US Open 2026 · Flushing Meadows · New York · Scores from served.bracket.tennis · Updated: ' + allData.updated + '<br><span style="font-size:0.72rem;color:#bbb;letter-spacing:0.04em;">Designed by Will</span>';
   } catch(e) {
     document.getElementById('status-text').textContent = 'Error loading data — ' + e.message;
   }

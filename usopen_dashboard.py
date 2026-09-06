@@ -41,8 +41,8 @@ HTML = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>US Open 2026</title>
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="shortcut icon" href="/favicon.svg">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="shortcut icon" type="image/png" href="/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
 <style>
@@ -2135,35 +2135,41 @@ Outside-court matches for lower seeds typically begin at 11:00 AM ET.
 All times are already ET — no conversion needed.
 """
 
-# ── US Open odds (DraftKings · sourced 2026-09-03) ───────────────────────────
-# Update these manually from DraftKings when odds change
+# ── US Open odds (sourced 2026-09-04) ────────────────────────────────────────
+# Update these manually when odds change
 
 _STATIC_ODDS = {
     'atp': [
-        ('+130',  'Carlos Alcaraz'),
-        ('+350',  'Alexander Zverev'),
-        ('+900',  'Taylor Fritz'),
-        ('+900',  'Ben Shelton'),
-        ('+1800', 'Daniil Medvedev'),
-        ('+3000', 'Lorenzo Musetti'),
-        ('+3000', 'Jakub Mensik'),
-        ('+3500', 'Frances Tiafoe'),
-        ('+4000', 'Tommy Paul'),
-        ('+4000', 'Flavio Cobolli'),
-        ('+5000', 'Alexander Bublik'),
-        ('+5000', 'Alex De Minaur'),
+        ('-165',  'Carlos Alcaraz'),
+        ('+330',  'Alexander Zverev'),
+        ('+1300', 'Ben Shelton'),
+        ('+2200', 'Frances Tiafoe'),
+        ('+2200', 'Daniil Medvedev'),
+        ('+2800', 'Learner Tien'),
+        ('+5000', 'Alex Michelsen'),
+        ('+6000', 'Alexander Blockx'),
+        ('+7000', 'Francisco Cerundolo'),
+        ('+7000', 'Karen Khachanov'),
+        ('+8000', 'Stefanos Tsitsipas'),
+        ('+15000','Botic Van De Zandschulp'),
+        ('+15000','Arthur Gea'),
+        ('+15000','Luciano Darderi'),
     ],
     'wta': [
-        ('+285',  'Aryna Sabalenka'),
-        ('+425',  'Coco Gauff'),
-        ('+500',  'Iga Swiatek'),
-        ('+900',  'Jessica Pegula'),
-        ('+1500', 'Naomi Osaka'),
-        ('+1700', 'Elena Rybakina'),
-        ('+2000', 'Mirra Andreeva'),
-        ('+2000', 'Karolina Muchova'),
-        ('+2000', 'Amanda Anisimova'),
-        ('+2200', 'Marta Kostyuk'),
+        ('+220',  'Aryna Sabalenka'),
+        ('+450',  'Coco Gauff'),
+        ('+550',  'Iga Swiatek'),
+        ('+850',  'Jessica Pegula'),
+        ('+900',  'Mirra Andreeva'),
+        ('+1100', 'Elena Rybakina'),
+        ('+1500', 'Linda Noskova'),
+        ('+1800', 'Naomi Osaka'),
+        ('+3000', 'Iva Jovic'),
+        ('+5000', 'Qinwen Zheng'),
+        ('+6000', 'Sorana Cirstea'),
+        ('+6000', 'Anastasia Potapova'),
+        ('+8000', 'Emma Navarro'),
+        ('+10000','Anna Kalinskaya'),
     ],
 }
 
@@ -2666,14 +2672,25 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path in ('/favicon.svg', '/favicon.ico'):
-            svg = b"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#c8e23a"/><path d="M 20 18 Q 50 50 20 82" fill="none" stroke="white" stroke-width="7" stroke-linecap="round"/><path d="M 80 18 Q 50 50 80 82" fill="none" stroke="white" stroke-width="7" stroke-linecap="round"/><circle cx="50" cy="50" r="48" fill="none" stroke="#a0b820" stroke-width="2"/></svg>"""
+        if self.path in ('/favicon.svg', '/favicon.ico', '/favicon.png'):
+            import base64
+            png_b64 = (
+                'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAABLElEQVR4nO3VUQ7DIAwD'
+                '0J5r9//ZNXaRTvuYNNGhBpTEDthSPwvxA4njUBRonq/HiZ4hPGeTT+ne1wY9+3T+lb'
+                'kr30P4/ofudBtrkVmA3w/d9RKv8uUQZof3QoBBeAzuBZAOkVGeFsF74Ij1lilPhRA1'
+                'aOS6S5SHI0QPmLF++dOH3QKW04fdgq0B2MqnImQNlA1gRhDAzgDM5VMQBLAzQPYgKI'
+                'AuggAKlPfaXwACEIAASr4AnvvrBghAAAIQQMWXwGNfAfSyA0C3vAAEwI8QXl4AAhhD'
+                'qARgLs+KkFpeAAMI7ADT5ZluAeT0mW4B5PRZEODlrQhMAO7lUQhU5S0IaIDw8pkItO'
+                'XvILIBIMXbeCNY/kd3vsQLoWT5NhEA6E7TGUFog549PKVPdoW8AVlDXWOLYr6lAAAA'
+                'AElFTkSuQmCC'
+            )
+            data = base64.b64decode(png_b64)
             self.send_response(200)
-            self.send_header('Content-Type', 'image/svg+xml')
-            self.send_header('Content-Length', str(len(svg)))
+            self.send_header('Content-Type', 'image/png')
+            self.send_header('Content-Length', str(len(data)))
             self.send_header('Cache-Control', 'public, max-age=86400')
             self.end_headers()
-            self.wfile.write(svg)
+            self.wfile.write(data)
             return
         if self.path.startswith('/api/data'):
             try:

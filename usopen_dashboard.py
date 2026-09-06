@@ -41,8 +41,8 @@ HTML = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>US Open 2026</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%23c8e23a'/%3E%3Cpath d='M 20 18 Q 50 50 20 82' fill='none' stroke='white' stroke-width='7' stroke-linecap='round'/%3E%3Cpath d='M 80 18 Q 50 50 80 82' fill='none' stroke='white' stroke-width='7' stroke-linecap='round'/%3E%3Ccircle cx='50' cy='50' r='48' fill='none' stroke='%23a0b820' stroke-width='2'/%3E%3C/svg%3E">
-<link rel="alternate icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%23c8e23a'/%3E%3Cpath d='M 20 18 Q 50 50 20 82' fill='none' stroke='white' stroke-width='7' stroke-linecap='round'/%3E%3Cpath d='M 80 18 Q 50 50 80 82' fill='none' stroke='white' stroke-width='7' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="shortcut icon" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
 <style>
@@ -2666,6 +2666,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path in ('/favicon.svg', '/favicon.ico'):
+            svg = b"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#c8e23a"/><path d="M 20 18 Q 50 50 20 82" fill="none" stroke="white" stroke-width="7" stroke-linecap="round"/><path d="M 80 18 Q 50 50 80 82" fill="none" stroke="white" stroke-width="7" stroke-linecap="round"/><circle cx="50" cy="50" r="48" fill="none" stroke="#a0b820" stroke-width="2"/></svg>"""
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/svg+xml')
+            self.send_header('Content-Length', str(len(svg)))
+            self.send_header('Cache-Control', 'public, max-age=86400')
+            self.end_headers()
+            self.wfile.write(svg)
+            return
         if self.path.startswith('/api/data'):
             try:
                 members = None

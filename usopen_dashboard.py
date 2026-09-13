@@ -20,6 +20,7 @@ PORT = int(os.environ.get('PORT', 8768))
 MEMBERS = [
     'willarditti',
     'jackthesnack21',
+    'Wizzy',
     # add more served.bracket.tennis usernames here
 ]
 
